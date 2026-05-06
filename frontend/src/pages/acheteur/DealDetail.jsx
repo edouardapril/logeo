@@ -28,6 +28,7 @@ import BidDisclaimerModal from '../../components/deal/BidDisclaimerModal'
 import ReviewSection from '../../components/deal/ReviewSection'
 import ActivityFeed from '../../components/deal/ActivityFeed'
 import AnimatedNumber from '../../components/ui/AnimatedNumber'
+import CountdownBoxes from '../../components/ui/CountdownBoxes'
 import { listReviewsForDealApi } from '../../api/reviews'
 import { fileUrl } from '../../utils/url'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
@@ -48,6 +49,12 @@ export default function DealDetail() {
   const { dealId } = useParams()
   const queryClient = useQueryClient()
   const [ndaModal, setNdaModal] = useState(false)
+  const [ndaConsents, setNdaConsents] = useState({
+    consent_confidentiality: false,
+    consent_no_direct_contact: false,
+    consent_logeo_exclusive_source: false,
+    consent_no_third_party_share: false,
+  })
   const [engagementModal, setEngagementModal] = useState(false)
   const [disclaimerModal, setDisclaimerModal] = useState(false)
   const [visitModal, setVisitModal] = useState(false)
@@ -140,14 +147,20 @@ export default function DealDetail() {
   }, [live.latest, dealId, queryClient])
 
   const signNda = useMutation({
-    mutationFn: () => signNdaApi(dealId),
+    mutationFn: () => signNdaApi(dealId, ndaConsents),
     onSuccess: () => {
-      toast.success('NDA signé · Accès au dossier complet')
+      toast.success('NDA signé · PDF envoyé par email')
       queryClient.invalidateQueries({ queryKey: ['acheteur'] })
       setNdaModal(false)
+      setNdaConsents({
+        consent_confidentiality: false, consent_no_direct_contact: false,
+        consent_logeo_exclusive_source: false, consent_no_third_party_share: false,
+      })
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
+
+  const allNdaConsentsChecked = Object.values(ndaConsents).every(Boolean)
   const signEngagement = useMutation({
     mutationFn: () => signEngagementApi(dealId),
     onSuccess: () => {
@@ -210,11 +223,9 @@ export default function DealDetail() {
   const ddDone = !!deal.due_diligence_completed_at
 
   // Calculs financiers
-  const capRate = deal.net_revenue && deal.asking_price
-    ? ((deal.net_revenue / deal.asking_price) * 100).toFixed(2)
-    : null
-  const ratioPriceEval = deal.municipal_evaluation && deal.asking_price
-    ? (deal.asking_price / deal.municipal_evaluation).toFixed(2)
+  // Calculs basés sur prix plancher (asking_price n'est plus exposé côté acheteur — item 5)
+  const capRate = deal.net_revenue && deal.floor_price
+    ? ((deal.net_revenue / deal.floor_price) * 100).toFixed(2)
     : null
   const totalExpenses = deal.expenses
     ? Object.values(deal.expenses).reduce((s, v) => s + (Number(v) || 0), 0)
@@ -243,9 +254,14 @@ export default function DealDetail() {
         </div>
 
         {isAuctionOpen && (
-          <div className="card px-5 py-3">
-            <p className="text-xs text-gray-500 mb-1">Fin de l'enchère</p>
-            <Timer closeAt={deal.bid_close_at} size="lg" showLabel />
+          <div className="card p-4">
+            <p className="text-xs text-gray-500 mb-2 text-center">Fin de l'enchère</p>
+            <CountdownBoxes
+              closeAt={live.liveCloseAt || deal.bid_close_at}
+              size="lg"
+              showLabel
+              extendedFlash={live.extendedFlash}
+            />
           </div>
         )}
       </div>
@@ -273,20 +289,16 @@ export default function DealDetail() {
             </h2>
 
             <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-              <div>
-                <dt className="text-gray-500 text-xs">Prix demandé</dt>
-                <dd className="text-lg font-bold text-gray-900">{formatMoney(deal.asking_price)}</dd>
-              </div>
+              {deal.floor_price != null && (
+                <div>
+                  <dt className="text-gray-500 text-xs">Prix plancher</dt>
+                  <dd className="text-lg font-bold text-[#C2410C]">{formatMoney(deal.floor_price)}</dd>
+                </div>
+              )}
               {deal.municipal_evaluation != null && (
                 <div>
                   <dt className="text-gray-500 text-xs">Évaluation municipale</dt>
                   <dd className="font-semibold">{formatMoney(deal.municipal_evaluation)}</dd>
-                </div>
-              )}
-              {ratioPriceEval && (
-                <div>
-                  <dt className="text-gray-500 text-xs">Ratio prix/évaluation</dt>
-                  <dd className="font-semibold">{ratioPriceEval}×</dd>
                 </div>
               )}
               {deal.gross_revenue != null && (
@@ -697,7 +709,7 @@ export default function DealDetail() {
                     type="number" min={ranking?.min_next_bid || deal.floor_price || 0}
                     value={bidAmount}
                     onChange={(e) => setBidAmount(e.target.value)}
-                    placeholder={String(ranking?.min_next_bid || deal.asking_price)}
+                    placeholder={String(ranking?.min_next_bid || deal.floor_price || '')}
                     hint="Votre maximum proxy. Le prix affiché monte automatiquement selon les enchères concurrentes."
                   />
                   <button
@@ -854,18 +866,64 @@ export default function DealDetail() {
       {/* ── Modals ── */}
       <Modal open={ndaModal} onClose={() => setNdaModal(false)} title="Accord de non-divulgation (NDA)" size="lg">
         <div className="space-y-4 text-sm text-gray-700">
-          <p>En signant ce NDA, je m'engage à respecter les conditions suivantes pour le deal en question :</p>
-          <ul className="list-disc list-inside space-y-1.5 pl-2">
-            <li><strong>Confidentialité totale</strong> : ne pas divulguer l'adresse, le nom du courtier, ni aucune information du dossier à un tiers.</li>
-            <li><strong>Non-contournement 24 mois</strong> : ne pas contacter le vendeur ou conclure une transaction directe sans Logeo. Pénalité de 3× les frais Logeo.</li>
-            <li><strong>Usage personnel uniquement</strong>.</li>
-          </ul>
-          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
-            <p><strong>Preuves légales :</strong> votre adresse IP et l'horodatage seront enregistrés au moment de la signature.</p>
+          <div className="rounded-lg bg-[#FFEDD5] border border-[#FDBA74] p-3 text-xs text-[#9A3412]">
+            Deal <strong>{deal.city}</strong> · #{String(dealId).slice(0, 8).toUpperCase()}
+            <p className="mt-1">
+              En signant ce NDA, vous accédez à l'<strong>adresse exacte</strong> de la propriété et
+              à tous les documents. <strong>Durée non-contournement : 24 mois.</strong>
+              Pénalité d'infraction : <strong>3× les frais Logeo applicables</strong>, juridiquement exigible.
+            </p>
           </div>
-          <div className="flex justify-end gap-2 pt-4">
+
+          <p className="font-medium text-gray-900">Cochez chacune des 4 clauses :</p>
+          <ul className="space-y-2.5">
+            {[
+              { key: 'consent_confidentiality',
+                title: 'Confidentialité totale',
+                body: "Je m'engage à maintenir une confidentialité totale sur l'adresse, l'identité du courtier, l'identité du vendeur, les documents et les données financières du deal." },
+              { key: 'consent_no_direct_contact',
+                title: 'Non-contact direct vendeur/courtier',
+                body: "Je ne contacterai pas directement le vendeur ou le courtier en dehors du canal Logeo, pendant l'enchère et pour 24 mois après." },
+              { key: 'consent_logeo_exclusive_source',
+                title: 'Reconnaissance source exclusive Logeo',
+                body: "Toute transaction sur cette propriété dans les 24 mois doit transiter par Logeo. Sinon, pénalité de 3× les frais Logeo." },
+              { key: 'consent_no_third_party_share',
+                title: 'Non-partage avec tiers',
+                body: "Je ne partagerai aucune information du dossier (photos, documents, données) avec un tiers sans autorisation écrite préalable de Logeo." },
+            ].map(c => (
+              <li key={c.key}>
+                <label className="block p-3 rounded-lg border border-gray-200 hover:border-[#FDBA74] cursor-pointer">
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={ndaConsents[c.key]}
+                      onChange={(e) => setNdaConsents({ ...ndaConsents, [c.key]: e.target.checked })}
+                      className="mt-0.5 rounded border-gray-300 text-[#EA580C] focus:ring-[#EA580C]"
+                    />
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{c.title}</p>
+                      <p className="text-xs text-gray-700 mt-0.5">{c.body}</p>
+                    </div>
+                  </div>
+                </label>
+              </li>
+            ))}
+          </ul>
+
+          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+            <p>
+              <strong>Preuves légales (Loi 25 — Québec) :</strong> votre adresse IP, l'horodatage et l'agent
+              utilisateur sont enregistrés. Un PDF signé contenant l'adresse exacte du deal et les 4 clauses
+              cochées vous sera envoyé par email à la signature.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setNdaModal(false)} className="btn-secondary">Annuler</button>
-            <button onClick={() => signNda.mutate()} disabled={signNda.isPending} className="btn-primary">
+            <button
+              onClick={() => signNda.mutate()}
+              disabled={signNda.isPending || !allNdaConsentsChecked}
+              className="btn-primary"
+            >
               <ShieldCheck className="h-4 w-4" />
               {signNda.isPending ? 'Signature...' : 'Je signe le NDA'}
             </button>

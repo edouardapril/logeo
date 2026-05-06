@@ -3,11 +3,11 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send,
+  ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send, RotateCcw,
 } from 'lucide-react'
 import {
   courtierGetDealApi, uploadPaApi,
-  courtierListQuestionsApi, answerQuestionApi,
+  courtierListQuestionsApi, answerQuestionApi, restartRoundApi,
 } from '../../api/courtier'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
@@ -64,6 +64,15 @@ export default function CourtierDealDetail() {
       toast.success('Réponse publiée')
       setAnswerDraft({ ...answerDraft, [vars.qid]: '' })
       queryClient.invalidateQueries({ queryKey: ['courtier', 'questions', dealId] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const restartMut = useMutation({
+    mutationFn: () => restartRoundApi(dealId),
+    onSuccess: () => {
+      toast.success('Deal soumis à nouvelle analyse admin')
+      queryClient.invalidateQueries({ queryKey: ['courtier', 'deal', dealId] })
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
@@ -139,6 +148,39 @@ export default function CourtierDealDetail() {
               <h3 className="font-semibold text-red-900">Deal non retenu</h3>
               <p className="text-sm text-red-800 mt-1">{deal.nogo_reason}</p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Item 4 : enchère terminée sans gagnant → bouton relancer */}
+      {deal.status === 'auction_ended' && (
+        <div className="card p-6 mb-6 bg-gray-50 border-gray-200">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <Clock className="h-5 w-5 text-gray-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-gray-900">
+                  Enchère terminée — Plancher non atteint
+                </h3>
+                <p className="text-sm text-gray-700 mt-1">
+                  Aucune offre n'a été reçue avant la fermeture. Vous pouvez relancer
+                  une nouvelle ronde de 10 jours. Le deal repassera en analyse pour
+                  validation admin avant publication.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (window.confirm('Relancer une nouvelle ronde de 10 jours ? Le deal repassera en analyse.')) {
+                  restartMut.mutate()
+                }
+              }}
+              disabled={restartMut.isPending}
+              className="btn-primary text-sm"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {restartMut.isPending ? '...' : 'Relancer une nouvelle ronde'}
+            </button>
           </div>
         </div>
       )}

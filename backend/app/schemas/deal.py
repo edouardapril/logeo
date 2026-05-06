@@ -6,6 +6,8 @@ from app.models.deal import DealStatus, PropertyType
 
 class DealSubmit(BaseModel):
     property_type: PropertyType
+    region: str
+    mrc: str | None = None
     city: str
     postal_code: str
     address_private: str
@@ -70,6 +72,8 @@ class DealTeaser(BaseModel):
     status: DealStatus
     property_type: PropertyType
     city: str
+    region: str | None = None
+    mrc: str | None = None
     postal_code: str | None = None
     asking_price: int
     floor_price: int | None = None
@@ -129,8 +133,11 @@ class DealListItem(BaseModel):
     status: DealStatus
     property_type: PropertyType
     city: str
+    region: str | None = None
+    mrc: str | None = None
     postal_code: str | None = None
     asking_price: int
+    floor_price: int | None = None
     bid_close_at: datetime | None
     created_at: datetime
 

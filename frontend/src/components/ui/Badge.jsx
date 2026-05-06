@@ -1,19 +1,21 @@
 const STATUS_STYLES = {
-  draft:     'bg-gray-100 text-gray-700 ring-gray-200',
-  analyse:   'bg-amber-50 text-amber-700 ring-amber-200',
-  bid:       'bg-[#FFEDD5] text-[#C2410C] ring-[#FDBA74]',
-  intro:     'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  pa_signed: 'bg-green-50 text-green-700 ring-green-200',
-  nogo:      'bg-red-50 text-red-700 ring-red-200',
+  draft:         'bg-gray-100 text-gray-700 ring-gray-200',
+  analyse:       'bg-amber-50 text-amber-700 ring-amber-200',
+  bid:           'bg-[#FFEDD5] text-[#C2410C] ring-[#FDBA74]',
+  intro:         'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  pa_signed:     'bg-green-50 text-green-700 ring-green-200',
+  nogo:          'bg-red-50 text-red-700 ring-red-200',
+  auction_ended: 'bg-gray-100 text-gray-600 ring-gray-300',
 }
 
 const STATUS_LABELS = {
-  draft:     'Brouillon',
-  analyse:   'En analyse',
-  bid:       'Enchère active',
-  intro:     'Intro confirmée',
-  pa_signed: 'PA signée',
-  nogo:      'Refusé',
+  draft:         'Brouillon',
+  analyse:       'En analyse',
+  bid:           'Enchère active',
+  intro:         'Intro confirmée',
+  pa_signed:     'PA signée',
+  nogo:          'Refusé',
+  auction_ended: 'Enchère terminée',
 }
 
 export default function Badge({ status, children, className = '' }) {

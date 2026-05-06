@@ -11,6 +11,10 @@ class UserRegisterCourtier(BaseModel):
     phone: str | None = None
     oaciq_number: str
     agency_name: str
+    # T&C — sprint final item 9
+    tos_cgu: bool = False
+    tos_privacy: bool = False
+    tos_canadian_resident: bool = False
 
 
 class UserRegisterAcheteur(BaseModel):
@@ -18,6 +22,11 @@ class UserRegisterAcheteur(BaseModel):
     password: str
     full_name: str
     phone: str | None = None
+    # T&C — sprint final item 9 (acheteurs ont en plus la confirmation investisseur qualifié)
+    tos_cgu: bool = False
+    tos_privacy: bool = False
+    tos_canadian_resident: bool = False
+    tos_qualified_investor: bool = False
 
 
 class UserLogin(BaseModel):
@@ -43,6 +52,7 @@ class UserPublic(BaseModel):
     engagement_signed_at: datetime | None = None
     profile_photo_path: str | None = None
     email_notifications: bool = True
+    email_verified: bool = True
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -4,6 +4,7 @@ Données exposées : agrégats anonymisés (compteurs, moyennes), photos profil,
 noms publics. JAMAIS de montants de deals, jamais d'adresse privée.
 """
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, Integer, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from app.models.user import User, UserRole
 from app.models.deal import Deal, DealStatus
 from app.models.bid import Bid, BidStatus
 from app.models.deal_review import DealReview
+from app.services.auction import compute_auction_state
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -236,5 +238,73 @@ async def leaderboard(
         })
 
     return {"acheteurs": top_acheteurs, "courtiers": top_courtiers}
+
+
+# ── Marketplace publique (sprint final item 1) ──────────────────────────────
+
+@router.get("/marketplace")
+async def public_marketplace(
+    region: str | None = Query(default=None),
+    mrc: str | None = Query(default=None),
+    city: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Liste publique des deals en enchère active. Affichée sans authentification
+    pour créer l'envie de s'inscrire.
+
+    Champs exposés (volontairement minimalistes) :
+      - city, region, mrc, postal_code (sans adresse précise)
+      - property_type
+      - floor_price (engagement vendeur, public)
+      - displayed_price (2e prix + incrément, calculé temps réel)
+      - bidders_count
+      - bid_close_at (pour le timer)
+      - teaser_photo_path (photo watermarquée publique)
+      - teaser_text
+
+    Champs JAMAIS exposés ici :
+      - asking_price (interne admin)
+      - address_private (post-NDA)
+      - photo_paths originales (post-NDA)
+      - documents
+    """
+    now = datetime.now(timezone.utc)
+
+    query = select(Deal).where(
+        Deal.status == DealStatus.bid,
+        Deal.bid_close_at.isnot(None),
+        Deal.bid_close_at > now,
+    )
+    if region:
+        query = query.where(Deal.region == region)
+    if mrc:
+        query = query.where(Deal.mrc == mrc)
+    if city:
+        query = query.where(Deal.city.ilike(f"%{city}%"))
+    query = query.order_by(Deal.bid_close_at.asc())
+
+    deals = (await db.execute(query)).scalars().all()
+    out = []
+    for d in deals:
+        state = await compute_auction_state(d, db)
+        out.append({
+            "id": str(d.id),
+            "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
+            "city": d.city,
+            "region": d.region,
+            "mrc": d.mrc,
+            "postal_code": d.postal_code,
+            "floor_price": d.floor_price,
+            "displayed_price": state["displayed_price"],
+            "bidders_count": state["bidders_count"],
+            "min_bid_increment": d.min_bid_increment,
+            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+            "teaser_text": d.teaser_text,
+            "teaser_photo_path": d.teaser_photo_path,
+            "num_units": d.num_units,
+        })
+    return out
+
 
 

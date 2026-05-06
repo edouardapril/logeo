@@ -30,14 +30,30 @@ async def _log_email(
     await db.flush()
 
 
-async def _send(to: str, subject: str, html: str) -> str | None:
+async def _send(to: str, subject: str, html: str, attachments: list[dict] | None = None) -> str | None:
+    """
+    attachments : liste de dicts {filename, content (bytes), content_type?} — Resend 2.x format.
+    Resend Python SDK accepte content en base64 string OR bytes.
+    """
     try:
-        result = resend.Emails.send({
+        payload = {
             "from": f"Logeo <{settings.from_email}>",
             "to": [to],
             "subject": subject,
             "html": html,
-        })
+        }
+        if attachments:
+            import base64
+            payload["attachments"] = [
+                {
+                    "filename": a["filename"],
+                    "content": base64.b64encode(a["content"]).decode("ascii")
+                        if isinstance(a["content"], (bytes, bytearray))
+                        else a["content"],
+                }
+                for a in attachments
+            ]
+        result = resend.Emails.send(payload)
         return result.get("id")
     except Exception as e:
         return None
@@ -82,19 +98,60 @@ async def send_nouveau_deal(db: AsyncSession, deal_id: uuid.UUID, deal_city: str
         await _log_email(db, EmailType.nouveau_deal, acheteur.id, deal_id, resend_id)
 
 
-async def send_nda_signee(db: AsyncSession, acheteur: User, deal_id: uuid.UUID):
+async def send_nda_signee(
+    db: AsyncSession, acheteur: User, deal_id: uuid.UUID,
+    pdf_bytes: bytes | None = None, deal_city: str | None = None,
+):
+    short = str(deal_id)[:8].upper()
+    location = f" pour le deal <strong>{deal_city or short}</strong>" if deal_city else f" #{short}"
     html = f"""
     <h2>NDA signé avec succès</h2>
     <p>Bonjour {acheteur.full_name},</p>
-    <p>Votre NDA pour le deal <strong>{deal_id}</strong> a été enregistré.</p>
-    <p>Vous avez maintenant accès au dossier complet, incluant l'adresse exacte et les coordonnées du courtier.</p>
-    <a href="{settings.frontend_url}/deals/{deal_id}/full">Accéder au dossier</a>
+    <p>Votre NDA{location} a été enregistré et horodaté.</p>
+    <p>Vous trouverez en pièce jointe le PDF signé contenant l'adresse exacte de la propriété,
+       les 4 clauses cochées et les preuves légales (IP + horodatage).</p>
+    <p>Vous avez maintenant accès au dossier complet sur la plateforme :</p>
+    <a href="{settings.frontend_url}/acheteur/deals/{deal_id}">Accéder au dossier complet</a>
     """
-    resend_id = await _send(acheteur.email, "[Logeo] NDA signé - Accès complet accordé", html)
+    attachments = None
+    if pdf_bytes:
+        attachments = [{"filename": f"NDA-Logeo-{short}.pdf", "content": pdf_bytes}]
+    resend_id = await _send(
+        acheteur.email,
+        f"[Logeo] NDA signé · #{short} · PDF en pièce jointe",
+        html,
+        attachments=attachments,
+    )
     await _log_email(db, EmailType.nda_signee, acheteur.id, deal_id, resend_id)
 
-    admin_html = f"<p>NDA signé par {acheteur.full_name} ({acheteur.email}) pour le deal {deal_id}</p>"
-    await _send(settings.admin_email, f"[Logeo Admin] NDA signé - {acheteur.email}", admin_html)
+    admin_html = f"<p>NDA signé par {acheteur.full_name} ({acheteur.email}) pour le deal #{short}</p>"
+    await _send(settings.admin_email, f"[Logeo Admin] NDA signé · #{short}", admin_html)
+
+
+async def send_email_verification(user: User, token: str):
+    """Envoie l'email de confirmation d'inscription (sprint final item 10)."""
+    verify_url = f"{settings.frontend_url}/verify-email?token={token}"
+    html = f"""
+    <h2>Bienvenue sur Logeo</h2>
+    <p>Bonjour {user.full_name},</p>
+    <p>Merci de votre inscription. Pour activer votre compte, confirmez votre adresse email
+       en cliquant sur le bouton ci-dessous :</p>
+    <p>
+      <a href="{verify_url}"
+         style="display:inline-block;padding:12px 22px;background:#EA580C;color:white;
+                text-decoration:none;border-radius:8px;font-weight:600;">
+        Confirmer mon email
+      </a>
+    </p>
+    <p style="color:#666;font-size:13px;">
+      Lien valide 24 heures. Si vous n'avez pas créé de compte sur Logeo, ignorez cet email.
+    </p>
+    <p style="color:#999;font-size:11px;">
+      Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :<br>
+      <code>{verify_url}</code>
+    </p>
+    """
+    await _send(user.email, "Bienvenue sur Logeo — Confirmez votre compte", html)
 
 
 async def send_bid_soumis_admin(db: AsyncSession, deal_id: uuid.UUID, acheteur_name: str, amount: int):
@@ -204,6 +261,37 @@ async def send_verdict_nogo(db: AsyncSession, courtier: User, deal_id: uuid.UUID
     """
     resend_id = await _send(courtier.email, "[Logeo] Résultat de l'analyse de votre soumission", html)
     await _log_email(db, EmailType.verdict_nogo, courtier.id, deal_id, resend_id)
+
+
+async def send_auction_ended_no_winner(db: AsyncSession, courtier: User, deal_id: uuid.UUID, city: str):
+    """Cas B : enchère terminée sans bid → courtier peut relancer une nouvelle ronde."""
+    html = f"""
+    <h2>Votre enchère est terminée sans résultat</h2>
+    <p>Bonjour {courtier.full_name},</p>
+    <p>L'enchère pour le deal <strong>{city}</strong> est arrivée à terme sans recevoir d'offre.</p>
+    <p>Vous pouvez <strong>relancer une nouvelle ronde</strong> de 10 jours depuis votre tableau de bord.
+       L'admin Logeo confirmera la republication.</p>
+    <a href="{settings.frontend_url}/courtier/deals/{deal_id}">Relancer le deal</a>
+    """
+    await _send(courtier.email, "[Logeo] Votre enchère est terminée — relancer une nouvelle ronde ?", html)
+
+
+async def send_new_question(db: AsyncSession, courtier: User, asker_name: str,
+                             deal_id: uuid.UUID, city: str, question: str):
+    """Notification immédiate au courtier d'une nouvelle question FAQ."""
+    truncated = question if len(question) <= 500 else question[:500] + '...'
+    html = f"""
+    <h2>Nouvelle question sur votre deal {city}</h2>
+    <p>Bonjour {courtier.full_name},</p>
+    <p>Un acheteur ({asker_name}) vient de poser une question sur l'un de vos deals :</p>
+    <blockquote style="border-left:3px solid #FDBA74; padding:8px 12px; background:#FFEDD5; color:#9A3412;">
+      {truncated}
+    </blockquote>
+    <p>Répondez-y depuis votre portail courtier — toutes les Q&R sont visibles
+       par les acheteurs qui ont signé le NDA.</p>
+    <a href="{settings.frontend_url}/courtier/deals/{deal_id}">Répondre maintenant</a>
+    """
+    await _send(courtier.email, f"[Logeo] Nouvelle question sur votre deal {city}", html)
 
 
 async def send_outbid(db: AsyncSession, previous_winner: User, deal_id: uuid.UUID, new_displayed_price: int):

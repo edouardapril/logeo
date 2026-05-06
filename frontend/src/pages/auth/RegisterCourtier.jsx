@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { ShieldCheck } from 'lucide-react'
 import Input from '../../components/ui/Input'
 import Logo from '../../components/ui/Logo'
+import TermsConsent, { allTermsAccepted } from '../../components/auth/TermsConsent'
 import { registerCourtierApi, loginApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -13,11 +14,15 @@ export default function RegisterCourtier() {
     oaciq_number: '', agency_name: '',
   })
   const [conventionAccepted, setConventionAccepted] = useState(false)
+  const [tos, setTos] = useState({
+    tos_cgu: false, tos_privacy: false, tos_canadian_resident: false,
+  })
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const { login } = useAuth()
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const tosOk = allTermsAccepted('courtier', tos)
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -25,13 +30,16 @@ export default function RegisterCourtier() {
       toast.error('Vous devez signer la convention de non-contournement')
       return
     }
+    if (!tosOk) {
+      toast.error('Vous devez cocher les 3 conditions T&C pour créer votre compte.')
+      return
+    }
     setLoading(true)
     try {
-      await registerCourtierApi(form)
-      const tokenData = await loginApi({ email: form.email, password: form.password })
-      login(tokenData)
-      toast.success('Compte créé avec succès')
-      navigate('/courtier')
+      await registerCourtierApi({ ...form, ...tos })
+      // Item 10 : confirmation email obligatoire avant login
+      toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      navigate('/login', { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Erreur lors de l\'inscription')
     } finally {
@@ -90,7 +98,18 @@ export default function RegisterCourtier() {
               </label>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full mt-6">
+            <div className="pt-4 border-t border-gray-100">
+              <p className="text-sm font-semibold text-gray-900 mb-3">
+                Conditions d'utilisation et confirmations légales
+              </p>
+              <TermsConsent role="courtier" value={tos} onChange={setTos} />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !conventionAccepted || !tosOk}
+              className="btn-primary w-full mt-6"
+            >
               {loading ? 'Création du compte...' : 'Créer mon compte courtier'}
             </button>
           </form>

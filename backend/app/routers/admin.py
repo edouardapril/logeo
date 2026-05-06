@@ -782,3 +782,211 @@ async def lift_sanction(
 
     await db.flush()
     return await _enrich_sanction(s, db)
+
+
+# ── Revenus admin (sprint final item 6) ──────────────────────────────────────
+
+@router.get("/revenues")
+async def admin_revenues(
+    months: int = 12,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Vue revenus pour le dashboard admin :
+      - cards : total cumulé / mois courant / solde en attente / deals complétés ce mois
+      - monthly_aggregates : sum par mois sur les N derniers mois
+      - transactions : par deal (acheteur, deposit, balance, total, statut)
+    """
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # ── Agrégats globaux
+    total_res = await db.execute(
+        select(func.coalesce(func.sum(Payment.amount_cents), 0))
+        .where(Payment.state == PaymentState.succeeded)
+    )
+    total_cents = int(total_res.scalar() or 0)
+
+    month_res = await db.execute(
+        select(func.coalesce(func.sum(Payment.amount_cents), 0))
+        .where(Payment.state == PaymentState.succeeded, Payment.succeeded_at >= month_start)
+    )
+    month_cents = int(month_res.scalar() or 0)
+
+    # Pending balance : copy de la logique dashboard_metrics
+    pending = 0
+    intro_res = await db.execute(
+        select(Deal, Bid)
+        .join(Bid, and_(Bid.deal_id == Deal.id, Bid.status == BidStatus.winner))
+        .where(Deal.status == DealStatus.intro)
+    )
+    for d, bid in intro_res.all():
+        dep_ok = await db.execute(
+            select(Payment).where(
+                Payment.deal_id == d.id, Payment.bid_id == bid.id,
+                Payment.type == PaymentType.deposit,
+                Payment.state == PaymentState.succeeded,
+            )
+        )
+        if not dep_ok.scalar_one_or_none():
+            continue
+        bal_ok = await db.execute(
+            select(Payment).where(
+                Payment.deal_id == d.id, Payment.bid_id == bid.id,
+                Payment.type == PaymentType.balance,
+                Payment.state == PaymentState.succeeded,
+            )
+        )
+        if bal_ok.scalar_one_or_none():
+            continue
+        from app.services.fee import compute_fees
+        pending += compute_fees(bid.amount).balance_cents
+
+    completed_count_res = await db.execute(
+        select(func.count(Deal.id)).where(
+            Deal.status == DealStatus.pa_signed,
+            Deal.updated_at >= month_start,
+        )
+    )
+    completed_this_month = int(completed_count_res.scalar() or 0)
+
+    # ── Agrégats mensuels (pour graphique barres)
+    monthly_aggregates: list[dict] = []
+    for i in range(months - 1, -1, -1):
+        # mois cible : i mois en arrière depuis le mois courant
+        year = month_start.year
+        m = month_start.month - i
+        while m <= 0:
+            m += 12
+            year -= 1
+        start = month_start.replace(year=year, month=m)
+        # mois suivant
+        end_m = m + 1
+        end_y = year
+        if end_m > 12:
+            end_m = 1
+            end_y += 1
+        end = month_start.replace(year=end_y, month=end_m)
+
+        sum_res = await db.execute(
+            select(func.coalesce(func.sum(Payment.amount_cents), 0))
+            .where(
+                Payment.state == PaymentState.succeeded,
+                Payment.succeeded_at >= start,
+                Payment.succeeded_at < end,
+            )
+        )
+        monthly_aggregates.append({
+            "ym": start.strftime("%Y-%m"),
+            "label": start.strftime("%b %Y"),
+            "revenue_cents": int(sum_res.scalar() or 0),
+        })
+
+    # ── Transactions enrichies par deal
+    deals_with_payments_res = await db.execute(
+        select(Deal.id).join(Payment, Payment.deal_id == Deal.id)
+        .where(Payment.state == PaymentState.succeeded)
+        .group_by(Deal.id)
+    )
+    deal_ids = [r[0] for r in deals_with_payments_res.all()]
+
+    transactions: list[dict] = []
+    for did in deal_ids:
+        d_res = await db.execute(select(Deal).where(Deal.id == did))
+        d = d_res.scalar_one_or_none()
+        if not d:
+            continue
+        # Bid gagnant
+        b_res = await db.execute(
+            select(Bid).where(Bid.deal_id == did, Bid.status == BidStatus.winner)
+        )
+        bid = b_res.scalar_one_or_none()
+        acheteur_name = None
+        if bid:
+            u_res = await db.execute(select(User).where(User.id == bid.acheteur_id))
+            u = u_res.scalar_one_or_none()
+            if u:
+                acheteur_name = u.full_name
+
+        # Sum deposit / balance
+        dep_res = await db.execute(
+            select(func.coalesce(func.sum(Payment.amount_cents), 0), func.max(Payment.succeeded_at))
+            .where(Payment.deal_id == did, Payment.type == PaymentType.deposit, Payment.state == PaymentState.succeeded)
+        )
+        dep_row = dep_res.first()
+        dep_cents = int(dep_row[0] or 0)
+        dep_at = dep_row[1]
+
+        bal_res = await db.execute(
+            select(func.coalesce(func.sum(Payment.amount_cents), 0), func.max(Payment.succeeded_at))
+            .where(Payment.deal_id == did, Payment.type == PaymentType.balance, Payment.state == PaymentState.succeeded)
+        )
+        bal_row = bal_res.first()
+        bal_cents = int(bal_row[0] or 0)
+        bal_at = bal_row[1]
+
+        last_at = max(filter(None, [dep_at, bal_at]), default=None)
+        if dep_cents > 0 and bal_cents > 0:
+            tx_status = "complete"
+        elif dep_cents > 0:
+            tx_status = "deposit_only"
+        else:
+            tx_status = "pending"
+
+        transactions.append({
+            "deal_id": str(did),
+            "deal_city": d.city,
+            "acheteur_name": acheteur_name,
+            "deposit_cents": dep_cents,
+            "balance_cents": bal_cents,
+            "total_cents": dep_cents + bal_cents,
+            "status": tx_status,
+            "last_payment_at": last_at.isoformat() if last_at else None,
+            "deal_status": d.status.value if hasattr(d.status, "value") else str(d.status),
+        })
+
+    transactions.sort(key=lambda t: t["last_payment_at"] or "", reverse=True)
+
+    return {
+        "total_revenue_cents": total_cents,
+        "this_month_revenue_cents": month_cents,
+        "pending_balance_cents": pending,
+        "completed_deals_this_month": completed_this_month,
+        "monthly_aggregates": monthly_aggregates,
+        "transactions": transactions,
+    }
+
+
+@router.get("/revenues/csv")
+async def admin_revenues_csv(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export CSV de toutes les transactions revenus."""
+    from fastapi.responses import StreamingResponse
+    import csv
+    import io
+
+    data = await admin_revenues(months=120, current_user=current_user, db=db)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        "date_dernier_paiement", "deal_id", "ville", "acheteur",
+        "depot_cad", "solde_cad", "total_cad", "statut", "deal_statut",
+    ])
+    for t in data["transactions"]:
+        writer.writerow([
+            t["last_payment_at"] or "",
+            t["deal_id"],
+            t["deal_city"] or "",
+            t["acheteur_name"] or "",
+            t["deposit_cents"] / 100,
+            t["balance_cents"] / 100,
+            t["total_cents"] / 100,
+            t["status"],
+            t["deal_status"],
+        ])
+    buffer.seek(0)
+    headers = {"Content-Disposition": "attachment; filename=logeo-revenus.csv"}
+    return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv", headers=headers)

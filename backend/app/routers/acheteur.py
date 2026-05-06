@@ -97,8 +97,19 @@ async def sign_nda(
     db: AsyncSession = Depends(get_db),
 ):
     _require_qualified(current_user)
-    if not payload.accepted:
-        raise HTTPException(status_code=400, detail="Vous devez accepter le NDA")
+
+    # Sprint final item 8 : 4 cases obligatoires
+    consents = {
+        "consent_confidentiality":         payload.consent_confidentiality,
+        "consent_no_direct_contact":       payload.consent_no_direct_contact,
+        "consent_logeo_exclusive_source":  payload.consent_logeo_exclusive_source,
+        "consent_no_third_party_share":    payload.consent_no_third_party_share,
+    }
+    if not all(consents.values()):
+        raise HTTPException(
+            status_code=400,
+            detail="Vous devez cocher les 4 clauses du NDA pour le signer.",
+        )
 
     deal = await _get_active_deal(deal_id, db)
 
@@ -116,11 +127,48 @@ async def sign_nda(
         acheteur_id=current_user.id,
         ip_address=ip,
         user_agent=user_agent,
+        consents=consents,
     )
     db.add(nda)
     await db.flush()
 
-    await email_service.send_nda_signee(db, current_user, deal_id)
+    # Génère le PDF + l'attache à la DB
+    try:
+        from app.services.nda_pdf import generate_nda_pdf
+        from app.services import storage as storage_svc
+        pdf_bytes = generate_nda_pdf(
+            acheteur_full_name=current_user.full_name,
+            acheteur_email=current_user.email,
+            deal_id=str(deal_id),
+            deal_city=deal.city,
+            deal_address_private=deal.address_private,
+            deal_property_type=deal.property_type.value if hasattr(deal.property_type, "value") else str(deal.property_type),
+            signed_at=nda.signed_at,
+            ip_address=ip,
+            user_agent=user_agent,
+            consents=consents,
+        )
+        nda.pdf_path = storage_svc.save(
+            content=pdf_bytes,
+            filename=f"nda_{str(deal_id)[:8]}_{str(current_user.id)[:8]}.pdf",
+            kind=storage_svc.KIND_DOCUMENTS,
+            subfolder=f"nda/{deal_id}",
+            content_type="application/pdf",
+        )
+        await db.flush()
+    except Exception:
+        pdf_bytes = None  # pas bloquant
+
+    # Email avec PDF en pièce jointe
+    try:
+        await email_service.send_nda_signee(
+            db, current_user, deal_id,
+            pdf_bytes=pdf_bytes,
+            deal_city=deal.city,
+        )
+    except Exception:
+        pass
+
     return nda
 
 
@@ -694,14 +742,16 @@ async def create_question(
     db.add(q)
     await db.flush()
 
-    # Notifier le courtier
+    # Notifier le courtier — sprint final item 7
     courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
     courtier = courtier_res.scalar_one_or_none()
     if courtier:
         try:
-            from app.services import email as email_service
-            await email_service.send_bid_soumis_admin(
-                db, deal_id, current_user.full_name, 0,
+            await email_service.send_new_question(
+                db, courtier=courtier,
+                asker_name=current_user.full_name,
+                deal_id=deal_id, city=deal.city,
+                question=payload.question.strip(),
             )
         except Exception:
             pass  # ne pas bloquer la création si l'email échoue
@@ -750,3 +800,95 @@ async def request_visit(
         # Fallback : utilise un email générique si send_visit_request n'existe pas encore
         pass
     return {"status": "sent", "courtier_email": courtier.email}
+
+
+# ── /mes-encheres : tous les deals où l'acheteur a participé (sprint final item 15) ─
+
+@router.get("/my-auctions")
+async def my_auctions(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Liste enrichie des deals où l'acheteur courant a placé au moins un bid.
+    Pour chaque deal, calcule sa position (winning / outbid / lost) et l'état de l'enchère.
+
+    Catégories implicites côté frontend :
+      - en_cours      : status='bid' et bid_close_at futur
+      - dd_en_cours   : status='intro' et acheteur courant = winner
+      - gagne         : status in (intro, pa_signed) et acheteur courant = winner
+      - perdu         : status in (intro, pa_signed, auction_ended) et autre winner / aucun
+    """
+    # Récupère tous les deal_ids où j'ai au moins un bid
+    deal_ids_res = await db.execute(
+        select(Bid.deal_id).where(Bid.acheteur_id == current_user.id).distinct()
+    )
+    deal_ids = [row[0] for row in deal_ids_res.all()]
+    if not deal_ids:
+        return []
+
+    deals_res = await db.execute(
+        select(Deal).where(Deal.id.in_(deal_ids)).order_by(Deal.bid_close_at.desc().nullslast())
+    )
+    deals = list(deals_res.scalars().all())
+
+    out = []
+    for d in deals:
+        state = await auction_svc.compute_auction_state(d, db)
+
+        # Bid gagnant courant pour ce deal
+        winner_bid_res = await db.execute(
+            select(Bid).where(Bid.deal_id == d.id, Bid.status == BidStatus.winner)
+        )
+        winner_bid = winner_bid_res.scalar_one_or_none()
+        i_won = winner_bid is not None and winner_bid.acheteur_id == current_user.id
+
+        # Mes bids sur ce deal
+        my_bids_res = await db.execute(
+            select(Bid).where(Bid.deal_id == d.id, Bid.acheteur_id == current_user.id)
+            .order_by(Bid.amount.desc())
+        )
+        my_bids = list(my_bids_res.scalars().all())
+        my_max = max((b.amount for b in my_bids), default=None)
+
+        # Catégorie
+        if d.status == DealStatus.bid:
+            category = 'en_cours'
+        elif d.status == DealStatus.intro and i_won:
+            category = 'dd_en_cours'
+        elif d.status == DealStatus.pa_signed and i_won:
+            category = 'gagne'
+        elif d.status in (DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+            category = 'perdu'
+        else:
+            category = 'autre'
+
+        # Pour la fenêtre DD : urgence
+        dd_urgent = False
+        if d.status == DealStatus.intro and i_won and d.due_diligence_deadline:
+            now = datetime.now(timezone.utc)
+            if (d.due_diligence_deadline - now).total_seconds() < 24 * 3600:
+                dd_urgent = True
+
+        out.append({
+            "deal_id": str(d.id),
+            "city": d.city,
+            "region": d.region,
+            "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+            "due_diligence_deadline": d.due_diligence_deadline.isoformat() if d.due_diligence_deadline else None,
+            "displayed_price": state["displayed_price"],
+            "floor_price": state["floor"],
+            "min_next_bid": (state["displayed_price"] + state["increment"])
+                if state["bidders_count"] > 0 and state["displayed_price"] is not None
+                else state["floor"],
+            "i_am_leading": state["winner_id"] == current_user.id and state["winner_id"] is not None,
+            "i_won": i_won,
+            "my_max": my_max,
+            "my_bids_count": len(my_bids),
+            "category": category,
+            "dd_urgent": dd_urgent,
+        })
+
+    return out

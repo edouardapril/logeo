@@ -5,6 +5,7 @@ import Layout from './components/layout/Layout'
 import Login from './pages/auth/Login'
 import RegisterCourtier from './pages/auth/RegisterCourtier'
 import RegisterAcheteur from './pages/auth/RegisterAcheteur'
+import VerifyEmail from './pages/auth/VerifyEmail'
 
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminUsers from './pages/admin/AdminUsers'
@@ -12,6 +13,7 @@ import AdminDeals from './pages/admin/AdminDeals'
 import AdminDealDetail from './pages/admin/AdminDealDetail'
 import AdminPayments from './pages/admin/AdminPayments'
 import AdminSanctions from './pages/admin/AdminSanctions'
+import AdminRevenues from './pages/admin/AdminRevenues'
 
 import CourtierDashboard from './pages/courtier/CourtierDashboard'
 import SubmitDeal from './pages/courtier/SubmitDeal'
@@ -21,11 +23,14 @@ import Convention from './pages/courtier/Convention'
 import DealList from './pages/acheteur/DealList'
 import DealDetail from './pages/acheteur/DealDetail'
 import PaiementPage from './pages/acheteur/PaiementPage'
+import MesEncheres from './pages/acheteur/MesEncheres'
 
 import Profile from './pages/common/Profile'
 
 import Leaderboard from './pages/public/Leaderboard'
 import AcheteurPublic from './pages/public/AcheteurPublic'
+import Marketplace from './pages/public/Marketplace'
+import Landing from './pages/public/Landing'
 import PublicLayout from './components/layout/PublicLayout'
 
 function ProtectedRoute({ roles }) {
@@ -37,7 +42,8 @@ function ProtectedRoute({ roles }) {
 
 function RoleRedirect() {
   const { user } = useAuth()
-  if (!user) return <Navigate to="/login" replace />
+  // Si pas connecté → page d'accueil publique (Landing)
+  if (!user) return <Landing />
   if (user.role === 'admin') return <Navigate to="/admin" replace />
   if (user.role === 'courtier') return <Navigate to="/courtier" replace />
   return <Navigate to="/acheteur/deals" replace />
@@ -51,6 +57,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register/courtier" element={<RegisterCourtier />} />
         <Route path="/register/acheteur" element={<RegisterAcheteur />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/" element={<RoleRedirect />} />
 
         {/* Admin */}
@@ -62,6 +69,7 @@ export default function App() {
             <Route path="/admin/deals/:dealId" element={<AdminDealDetail />} />
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/sanctions" element={<AdminSanctions />} />
+            <Route path="/admin/revenus" element={<AdminRevenues />} />
           </Route>
         </Route>
 
@@ -81,6 +89,7 @@ export default function App() {
             <Route path="/acheteur/deals" element={<DealList />} />
             <Route path="/acheteur/deals/:dealId" element={<DealDetail />} />
             <Route path="/acheteur/paiement" element={<PaiementPage />} />
+            <Route path="/acheteur/mes-encheres" element={<MesEncheres />} />
             {/* Alias pour l'ancien lien */}
             <Route path="/acheteur/payment-method" element={<Navigate to="/acheteur/paiement" replace />} />
           </Route>
@@ -95,6 +104,7 @@ export default function App() {
 
         {/* Pages publiques (pas d'auth requise) */}
         <Route element={<PublicLayout />}>
+          <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/acheteur/:id" element={<AcheteurPublic />} />
         </Route>

@@ -42,6 +42,14 @@ class User(Base):
     # Profil
     profile_photo_path: Mapped[str | None] = mapped_column(String(500))
     email_notifications: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # T&C — sprint final item 9
+    tos_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    tos_accepted_ip: Mapped[str | None] = mapped_column(String(64))
+    tos_accepted_version: Mapped[str | None] = mapped_column(String(20))
+    # Sprint final item 10 — email confirmation
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    email_verify_token: Mapped[str | None] = mapped_column(String(120))
+    email_verify_token_exp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Common
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

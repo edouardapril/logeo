@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Clock4, ShieldCheck, MessageSquare, Trophy, Pencil } from 'lucide-react'
+import { Clock4, ShieldCheck, MessageSquare, Trophy, Pencil, Filter, X } from 'lucide-react'
 import {
   adminListDealsEnrichedApi, extendBidCloseApi,
 } from '../../api/admin'
@@ -10,8 +10,10 @@ import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import Input from '../../components/ui/Input'
-import Timer from '../../components/ui/Timer'
+import CountdownBoxes from '../../components/ui/CountdownBoxes'
+import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
+import { regionLabel } from '../../utils/quebec'
 
 const STATUSES = [
   { value: '', label: 'Tous' },
@@ -30,14 +32,30 @@ const formatMoney = (n) =>
 export default function AdminDeals() {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('')
+  const [location, setLocation] = useState({ region: '', mrc: '', city: '' })
+  const [dateFrom, setDateFrom] = useState('')
   const [extendModal, setExtendModal] = useState(null)  // { dealId, currentClose }
   const [newCloseAt, setNewCloseAt] = useState('')
 
-  const { data: deals, isLoading } = useQuery({
+  const { data: dealsRaw, isLoading } = useQuery({
     queryKey: ['admin', 'deals-enriched', status],
     queryFn: () => adminListDealsEnrichedApi(status || undefined),
     refetchInterval: 30_000,
   })
+
+  // Filtres client-side : région + MRC + ville (substring) + date >=
+  const deals = useMemo(() => {
+    if (!dealsRaw) return null
+    return dealsRaw.filter(d => {
+      if (location.region && d.region !== location.region) return false
+      if (location.mrc && d.mrc !== location.mrc) return false
+      if (location.city && !((d.city || '').toLowerCase().includes(location.city.toLowerCase()))) return false
+      if (dateFrom && new Date(d.created_at) < new Date(dateFrom)) return false
+      return true
+    })
+  }, [dealsRaw, location, dateFrom])
+
+  const hasFilter = location.region || location.mrc || location.city || dateFrom
 
   const extend = useMutation({
     mutationFn: ({ dealId, iso }) => extendBidCloseApi(dealId, iso),
@@ -80,6 +98,32 @@ export default function AdminDeals() {
         ))}
       </div>
 
+      {/* Filtre région/MRC/ville/date — item 14 */}
+      <div className="card p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold flex items-center gap-1.5">
+            <Filter className="h-3 w-3" /> Filtres
+          </p>
+          {hasFilter && (
+            <button
+              onClick={() => { setLocation({ region: '', mrc: '', city: '' }); setDateFrom('') }}
+              className="text-xs link-brand font-medium inline-flex items-center gap-1"
+            >
+              <X className="h-3 w-3" /> Réinitialiser
+            </button>
+          )}
+        </div>
+        <QuebecLocationPicker value={location} onChange={setLocation} />
+        <div className="mt-3 max-w-xs">
+          <Input
+            label="Créé depuis le"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+      </div>
+
       {isLoading ? <Spinner /> : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
@@ -109,7 +153,9 @@ export default function AdminDeals() {
                     <Link to={`/admin/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
                       {PROPERTY_TYPE_LABELS[d.property_type] || d.property_type}
                     </Link>
-                    <p className="text-xs text-gray-500">{d.city}</p>
+                    <p className="text-xs text-gray-500">
+                      {d.city}{d.region && <span className="text-gray-400"> · {regionLabel(d.region)}</span>}
+                    </p>
                   </td>
                   <td className="px-4 py-3 font-medium text-right">{formatMoney(d.asking_price)}</td>
                   <td className="px-4 py-3 text-right text-[#C2410C] font-medium">
@@ -129,7 +175,7 @@ export default function AdminDeals() {
                   <td className="px-4 py-3"><Badge status={d.status} /></td>
                   <td className="px-4 py-3 text-xs text-gray-500">
                     {d.status === 'bid' && d.bid_close_at ? (
-                      <Timer closeAt={d.bid_close_at} size="sm" />
+                      <CountdownBoxes closeAt={d.bid_close_at} size="compact" />
                     ) : (
                       <span>{new Date(d.created_at).toLocaleDateString('fr-CA')}</span>
                     )}

@@ -8,3 +8,6 @@ export const publicCourtierApi = (id) =>
 
 export const leaderboardApi = (limit = 10) =>
   client.get('/public/leaderboard', { params: { limit } }).then(r => r.data)
+
+export const publicMarketplaceApi = (params = {}) =>
+  client.get('/public/marketplace', { params }).then(r => r.data)

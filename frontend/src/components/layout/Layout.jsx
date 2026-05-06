@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, LogOut, Plus, Search,
-  CreditCard, Receipt, UserCircle, ShieldOff,
+  CreditCard, Receipt, UserCircle, ShieldOff, Trophy, TrendingUp,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Logo from '../ui/Logo'
@@ -12,6 +12,7 @@ const NAV_BY_ROLE = {
     { to: '/admin/deals',     label: 'Deals',             icon: Building2 },
     { to: '/admin/users',     label: 'Utilisateurs',      icon: Users },
     { to: '/admin/payments',  label: 'Paiements',         icon: Receipt },
+    { to: '/admin/revenus',   label: 'Revenus',           icon: TrendingUp },
     { to: '/admin/sanctions', label: 'Sanctions',         icon: ShieldOff },
   ],
   courtier: [
@@ -19,8 +20,9 @@ const NAV_BY_ROLE = {
     { to: '/courtier/submit',  label: 'Soumettre un deal', icon: Plus },
   ],
   acheteur: [
-    { to: '/acheteur/deals',    label: 'Deals disponibles', icon: Search },
-    { to: '/acheteur/paiement', label: 'Paiement',          icon: CreditCard },
+    { to: '/acheteur/deals',        label: 'Deals disponibles', icon: Search },
+    { to: '/acheteur/mes-encheres', label: 'Mes enchères',      icon: Trophy },
+    { to: '/acheteur/paiement',     label: 'Paiement',          icon: CreditCard },
   ],
 }
 

@@ -46,3 +46,11 @@ export const createSanctionApi = (payload) =>
   client.post('/admin/sanctions', payload).then(r => r.data)
 export const liftSanctionApi = (sanctionId, lifted_reason) =>
   client.post(`/admin/sanctions/${sanctionId}/lift`, { lifted_reason }).then(r => r.data)
+
+// Revenues (sprint final item 6)
+export const adminRevenuesApi = (months = 12) =>
+  client.get('/admin/revenues', { params: { months } }).then(r => r.data)
+export const adminRevenuesCsvUrl = () => {
+  const base = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  return `${base}/api/v1/admin/revenues/csv`
+}

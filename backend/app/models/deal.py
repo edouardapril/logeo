@@ -14,6 +14,7 @@ class DealStatus(str, enum.Enum):
     intro = "intro"
     pa_signed = "pa_signed"
     nogo = "nogo"
+    auction_ended = "auction_ended"  # Enchère fermée sans gagnant (0 bid / plancher non atteint)
 
 
 class PropertyType(str, enum.Enum):
@@ -41,6 +42,8 @@ class Deal(Base):
     property_type: Mapped[PropertyType] = mapped_column(SAEnum(PropertyType), nullable=False)
 
     city: Mapped[str] = mapped_column(String(100), nullable=False)
+    region: Mapped[str | None] = mapped_column(String(80))   # Région administrative QC
+    mrc: Mapped[str | None] = mapped_column(String(80))      # MRC
     # Jamais exposé avant le statut intro
     address_private: Mapped[str] = mapped_column(String(500), nullable=False)
 

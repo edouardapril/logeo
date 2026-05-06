@@ -63,3 +63,7 @@ export const courtierListQuestionsApi = (dealId) =>
   client.get(`/courtier/deals/${dealId}/questions`).then(r => r.data)
 export const answerQuestionApi = (dealId, questionId, answer) =>
   client.post(`/courtier/deals/${dealId}/questions/${questionId}/answer`, { answer }).then(r => r.data)
+
+// Relance d'une nouvelle ronde (sprint final item 4)
+export const restartRoundApi = (dealId) =>
+  client.post(`/courtier/deals/${dealId}/restart-round`).then(r => r.data)

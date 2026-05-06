@@ -459,3 +459,29 @@ async def answer_question(
     q.answered_at = datetime.now(timezone.utc)
     await db.flush()
     return q
+
+
+# ── Relancer une enchère terminée sans gagnant (sprint final item 4) ─────────
+
+@router.post("/deals/{deal_id}/restart-round")
+async def restart_round(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_courtier),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permet au courtier de relancer une nouvelle ronde après auction_ended.
+    Le deal repasse en analyse → admin doit re-cliquer GO pour republier.
+    """
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    if deal.status != DealStatus.auction_ended:
+        raise HTTPException(
+            status_code=400,
+            detail="Seules les enchères terminées sans gagnant peuvent être relancées.",
+        )
+    deal.status = DealStatus.analyse
+    # On efface les anciennes dates pour éviter la confusion ; admin re-fixera bid_close_at au verdict
+    deal.bid_open_at = None
+    deal.bid_close_at = None
+    await db.flush()
+    return {"status": "analyse", "message": "Deal soumis à nouvelle analyse admin"}

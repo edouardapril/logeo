@@ -73,9 +73,29 @@ const CITY_REGION_HINTS = {
   'québec': 'quebec', 'quebec': 'quebec', 'lévis': 'quebec', 'levis': 'quebec',
 }
 
+// Mapping nouvelle hiérarchie Québec → 6-région simplifiées du DealList
+const QUEBEC_REGION_TO_SIMPLIFIED = {
+  montreal: 'montreal',
+  laval: 'laval',
+  monteregie: 'rive_sud',
+  laurentides: 'rive_nord',
+  lanaudiere: 'rive_nord',
+  capitale_nationale: 'quebec',
+  chaudiere_appalaches: 'quebec',
+}
+
 export function regionFromDeal(deal) {
+  // Priorité 1 : champ explicite `deal.region` (saisi par le courtier — sprint final)
+  if (deal.region && QUEBEC_REGION_TO_SIMPLIFIED[deal.region]) {
+    return QUEBEC_REGION_TO_SIMPLIFIED[deal.region]
+  }
+  if (deal.region) return 'autre'
+
+  // Priorité 2 : code postal
   const fromPC = regionFromPostalCode(deal.postal_code)
   if (fromPC) return fromPC
+
+  // Priorité 3 : nom de ville
   const city = String(deal.city || '').trim().toLowerCase()
   return CITY_REGION_HINTS[city] || 'autre'
 }

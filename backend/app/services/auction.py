@@ -129,6 +129,22 @@ async def close_auction(deal_id: uuid.UUID, db: AsyncSession):
     bids = bids_result.scalars().all()
 
     if not bids:
+        # Cas B : aucun bid → enchère terminée sans gagnant
+        deal.status = DealStatus.auction_ended
+        await db.flush()
+        # Notifier le courtier
+        courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+        courtier = courtier_res.scalar_one_or_none()
+        if courtier:
+            try:
+                await email_service.send_auction_ended_no_winner(db, courtier, deal_id, deal.city)
+            except Exception:
+                pass
+        # Broadcast WS public
+        try:
+            await realtime_svc.publish_auction_closed(deal_id, winner_user_id=None)
+        except Exception:
+            pass
         return
 
     winner_bid = bids[0]

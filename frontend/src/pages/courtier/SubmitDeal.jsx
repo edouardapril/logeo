@@ -14,6 +14,7 @@ import {
 import { conventionStatusApi } from '../../api/profile'
 import { PROPERTY_TYPES } from '../../utils/constants'
 import Spinner from '../../components/ui/Spinner'
+import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
 
 const MAX_PHOTOS = 10
 
@@ -47,6 +48,8 @@ export default function SubmitDeal() {
 
   const [form, setForm] = useState({
     property_type: PROPERTY_TYPES[0].value,
+    region: '',
+    mrc: '',
     city: '',
     postal_code: '',
     address_private: '',
@@ -100,6 +103,8 @@ export default function SubmitDeal() {
 
       const payload = {
         property_type: form.property_type,
+        region: form.region,
+        mrc: form.mrc || null,
         city: form.city,
         postal_code: form.postal_code,
         address_private: form.address_private,
@@ -159,6 +164,7 @@ export default function SubmitDeal() {
 
   const onSubmit = (e) => {
     e.preventDefault()
+    if (!form.region) { toast.error('Région requise'); return }
     if (!form.city || !form.postal_code || !form.address_private || !form.asking_price) {
       toast.error('Adresse, ville, code postal et prix demandé sont obligatoires')
       return
@@ -255,8 +261,14 @@ export default function SubmitDeal() {
               onChange={set('property_type')}
               options={PROPERTY_TYPES}
             />
-            <Input label="Ville *" required value={form.city} onChange={set('city')} placeholder="Montréal" />
+            <div /> {/* spacer pour la grille 2 colonnes */}
           </div>
+
+          <QuebecLocationPicker
+            value={{ region: form.region, mrc: form.mrc, city: form.city }}
+            onChange={(loc) => setForm({ ...form, ...loc })}
+            required
+          />
 
           <Input
             label="Adresse complète *"

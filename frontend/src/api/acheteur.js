@@ -3,7 +3,8 @@ import client from './client'
 export const listDealsApi = () => client.get('/acheteur/deals').then(r => r.data)
 export const getDealTeaserApi = (dealId) => client.get(`/acheteur/deals/${dealId}`).then(r => r.data)
 export const getDealFullApi = (dealId) => client.get(`/acheteur/deals/${dealId}/full`).then(r => r.data)
-export const signNdaApi = (dealId) => client.post(`/acheteur/deals/${dealId}/nda`, { accepted: true }).then(r => r.data)
+export const signNdaApi = (dealId, consents) =>
+  client.post(`/acheteur/deals/${dealId}/nda`, { accepted: true, ...consents }).then(r => r.data)
 export const signEngagementApi = (dealId) =>
   client.post(`/acheteur/deals/${dealId}/engagement`, { accepted: true }).then(r => r.data)
 export const placeBidApi = (dealId, payload) =>
@@ -20,3 +21,7 @@ export const askDealQuestionApi = (dealId, question) =>
   client.post(`/acheteur/deals/${dealId}/questions`, { question }).then(r => r.data)
 export const requestVisitApi = (dealId, payload) =>
   client.post(`/acheteur/deals/${dealId}/visit-request`, payload).then(r => r.data)
+
+// Sprint final item 15
+export const myAuctionsApi = () =>
+  client.get('/acheteur/my-auctions').then(r => r.data)
