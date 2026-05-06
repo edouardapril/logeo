@@ -37,7 +37,7 @@ export default function AdminDeals() {
             onClick={() => setStatus(s.value)}
             className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               status === s.value
-                ? 'bg-logeo-600 text-white'
+                ? 'bg-[#EA580C] text-white'
                 : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
             }`}
           >
@@ -63,7 +63,7 @@ export default function AdminDeals() {
               {deals?.map(d => (
                 <tr key={d.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <Link to={`/admin/deals/${d.id}`} className="font-medium text-gray-900 hover:text-logeo-600">
+                    <Link to={`/admin/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
                       {d.property_type}
                     </Link>
                   </td>

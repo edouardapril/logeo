@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { ShieldCheck } from 'lucide-react'
 import Input from '../../components/ui/Input'
+import Logo from '../../components/ui/Logo'
 import { registerCourtierApi, loginApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -41,14 +42,13 @@ export default function RegisterCourtier() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-2xl">
-        <Link to="/" className="inline-flex items-center gap-2 mb-6">
-          <div className="h-9 w-9 rounded-lg bg-logeo-600 flex items-center justify-center text-white font-bold">L</div>
-          <span className="text-2xl font-bold text-logeo-900">Logeo</span>
+        <Link to="/" className="mb-6 inline-block text-[#1A1A1A]">
+          <Logo size="md" />
         </Link>
 
         <div className="card p-8">
           <div className="flex items-center gap-2 mb-2">
-            <ShieldCheck className="h-5 w-5 text-logeo-600" />
+            <ShieldCheck className="h-5 w-5 text-[#EA580C]" />
             <h1 className="text-2xl font-bold text-gray-900">Inscription courtier OACIQ</h1>
           </div>
           <p className="text-sm text-gray-600 mb-6">
@@ -82,7 +82,7 @@ export default function RegisterCourtier() {
                   type="checkbox"
                   checked={conventionAccepted}
                   onChange={(e) => setConventionAccepted(e.target.checked)}
-                  className="mt-0.5 rounded border-gray-300 text-logeo-600 focus:ring-logeo-500"
+                  className="mt-0.5 rounded border-gray-300 text-[#EA580C] focus:ring-[#EA580C]"
                 />
                 <span className="text-sm text-amber-900 font-medium">
                   J'accepte la convention de non-contournement et la collaboration avec Logeo
@@ -97,7 +97,7 @@ export default function RegisterCourtier() {
 
           <p className="text-center text-sm text-gray-600 mt-6">
             Déjà un compte ?{' '}
-            <Link to="/login" className="font-medium text-logeo-600 hover:text-logeo-700">
+            <Link to="/login" className="font-medium link-brand">
               Se connecter
             </Link>
           </p>

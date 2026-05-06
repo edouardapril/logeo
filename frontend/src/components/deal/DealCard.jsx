@@ -18,11 +18,11 @@ export default function DealCard({ deal, to }) {
   return (
     <Link
       to={to}
-      className="card p-5 block hover:shadow-md hover:border-logeo-200 transition-all duration-200 group"
+      className="card p-5 block hover:shadow-md hover:border-[#FDBA74] transition-all duration-200 group"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="h-10 w-10 rounded-lg bg-logeo-50 text-logeo-600 flex items-center justify-center">
+          <div className="h-10 w-10 rounded-lg bg-[#FFEDD5] text-[#EA580C] flex items-center justify-center">
             {deal.property_type === 'terrain' ? <MapPin className="h-5 w-5" /> :
              deal.property_type === 'commercial' ? <Building2 className="h-5 w-5" /> :
              <Home className="h-5 w-5" />}

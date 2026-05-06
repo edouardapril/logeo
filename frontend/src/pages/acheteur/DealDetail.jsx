@@ -168,9 +168,9 @@ export default function DealDetail() {
 
           {/* Section verrouillée si pas de NDA */}
           {!hasSignedNda && (
-            <div className="card p-8 text-center bg-gradient-to-br from-logeo-50 to-white border-logeo-200">
-              <div className="h-12 w-12 mx-auto rounded-full bg-logeo-100 flex items-center justify-center mb-3">
-                <Lock className="h-6 w-6 text-logeo-600" />
+            <div className="card p-8 text-center bg-gradient-to-br from-[#FFEDD5] to-white border-[#FDBA74]">
+              <div className="h-12 w-12 mx-auto rounded-full bg-[#FED7AA] flex items-center justify-center mb-3">
+                <Lock className="h-6 w-6 text-[#EA580C]" />
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">Dossier verrouillé</h3>
               <p className="text-sm text-gray-600 mb-1 max-w-md mx-auto">
@@ -227,7 +227,7 @@ export default function DealDetail() {
                       href={`/uploads/${path.split('uploads/')[1] || path}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-logeo-600 hover:text-logeo-700"
+                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 link-brand"
                     >
                       <FileText className="h-4 w-4" />
                       <span className="capitalize">{key.replace(/_/g, ' ')}</span>

@@ -254,7 +254,7 @@ export default function AdminDealDetail() {
                 {winner && (
                   <div className="flex justify-between pt-2 border-t border-gray-100">
                     <dt className="text-gray-700 font-medium">Frais sur gagnant</dt>
-                    <dd className="font-bold text-logeo-700">
+                    <dd className="font-bold text-[#C2410C]">
                       {formatMoney(Math.max(Math.round(winner.amount * deal.fee_pct / 100), deal.fee_minimum || 0))}
                     </dd>
                   </div>
@@ -291,7 +291,7 @@ export default function AdminDealDetail() {
                 {Object.entries(deal.documents).map(([key, path]) => (
                   <li key={key}>
                     <a href={`/uploads/${path.split('uploads/')[1]}`} target="_blank" rel="noreferrer"
-                       className="text-logeo-600 hover:underline">
+                       className="link-brand hover:underline">
                       {key.replace(/_/g, ' ')}
                     </a>
                   </li>

@@ -10,10 +10,10 @@ const formatMoney = (n) =>
 
 function StatCard({ icon: Icon, label, value, tone = 'logeo' }) {
   const tones = {
-    logeo: 'bg-logeo-50 text-logeo-600',
+    logeo: 'bg-[#FFEDD5] text-[#C2410C]',
     amber: 'bg-amber-50 text-amber-600',
     emerald: 'bg-emerald-50 text-emerald-600',
-    blue: 'bg-blue-50 text-blue-600',
+    blue: 'bg-[#FFEDD5] text-[#C2410C]',
   }
   return (
     <div className="card p-5">
@@ -63,7 +63,7 @@ export default function AdminDashboard() {
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-900">Deals en attente d'analyse</h2>
-            <Link to="/admin/deals" className="text-sm text-logeo-600 hover:underline flex items-center gap-1">
+            <Link to="/admin/deals" className="text-sm link-brand hover:underline flex items-center gap-1">
               Tout voir <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-900">Enchères en cours</h2>
-            <Link to="/admin/deals" className="text-sm text-logeo-600 hover:underline flex items-center gap-1">
+            <Link to="/admin/deals" className="text-sm link-brand hover:underline flex items-center gap-1">
               Tout voir <ArrowRight className="h-3 w-3" />
             </Link>
           </div>

@@ -70,9 +70,9 @@ export default function CourtierDealDetail() {
       )}
 
       {deal.status === 'bid' && deal.bid_close_at && (
-        <div className="card p-6 mb-6 bg-blue-50 border-blue-200">
-          <h3 className="font-semibold text-blue-900 mb-2">Enchère en cours</h3>
-          <p className="text-sm text-blue-800 mb-3">
+        <div className="card p-6 mb-6 bg-[#FFEDD5] border-[#FDBA74]">
+          <h3 className="font-semibold text-[#C2410C] mb-2">Enchère en cours</h3>
+          <p className="text-sm text-[#1A1A1A] mb-3">
             Votre deal est en ligne. Les acheteurs qualifiés peuvent maintenant signer le NDA et enchérir.
           </p>
           <Timer closeAt={deal.bid_close_at} size="lg" />

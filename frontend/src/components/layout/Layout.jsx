@@ -3,6 +3,7 @@ import {
   LayoutDashboard, Users, Building2, FileText, LogOut, Plus, Search,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import Logo from '../ui/Logo'
 
 const NAV_BY_ROLE = {
   admin: [
@@ -37,13 +38,10 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      <aside className="w-64 bg-logeo-950 text-white flex flex-col">
+      <aside className="w-64 bg-[#1A1A1A] text-white flex flex-col">
         <div className="px-6 py-6 border-b border-white/10">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-logeo-500 flex items-center justify-center font-bold">L</div>
-            <span className="text-xl font-bold tracking-tight">Logeo</span>
-          </div>
-          <p className="mt-1 text-xs text-logeo-200/70">{ROLE_LABEL[user?.role]}</p>
+          <Logo size="sm" className="text-white" />
+          <p className="mt-2 text-xs text-white/60">{ROLE_LABEL[user?.role]}</p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -55,8 +53,8 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-logeo-600 text-white'
-                    : 'text-logeo-100/80 hover:bg-white/5 hover:text-white'
+                    ? 'bg-[#EA580C] text-white'
+                    : 'text-white/70 hover:bg-white/5 hover:text-white'
                 }`
               }
             >
@@ -69,7 +67,7 @@ export default function Layout() {
         <div className="px-3 py-4 border-t border-white/10">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-logeo-100/80 hover:bg-white/5 hover:text-white transition-colors"
+            className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-white/70 hover:bg-white/5 hover:text-white transition-colors"
           >
             <LogOut className="h-4 w-4" />
             Se déconnecter

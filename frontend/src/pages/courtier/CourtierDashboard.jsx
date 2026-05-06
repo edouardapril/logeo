@@ -53,7 +53,7 @@ export default function CourtierDashboard() {
               {deals.map(d => (
                 <tr key={d.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <Link to={`/courtier/deals/${d.id}`} className="font-medium text-gray-900 hover:text-logeo-600">
+                    <Link to={`/courtier/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
                       {d.property_type}
                     </Link>
                   </td>

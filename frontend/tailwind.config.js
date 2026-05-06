@@ -5,15 +5,23 @@ export default {
     extend: {
       colors: {
         logeo: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          500: '#3b5bdb',
-          600: '#3451c4',
-          700: '#2c45a8',
-          800: '#1e3080',
-          900: '#111c54',
-          950: '#0a1138',
+          50:  '#FFF7ED',
+          100: '#FFEDD5',
+          200: '#FED7AA',
+          300: '#FDBA74',
+          400: '#FB923C',
+          500: '#EA580C',
+          600: '#EA580C',
+          700: '#C2410C',
+          800: '#9A3412',
+          900: '#1A1A1A',
+          950: '#0F0F0F',
+        },
+        brand: {
+          DEFAULT: '#EA580C',
+          dark: '#C2410C',
+          tint: '#FFEDD5',
+          ink: '#1A1A1A',
         },
       },
       fontFamily: {

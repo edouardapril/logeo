@@ -52,7 +52,7 @@ export default function AdminUsers() {
             onClick={() => setRole(r.value)}
             className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
               role === r.value
-                ? 'bg-logeo-600 text-white'
+                ? 'bg-[#EA580C] text-white'
                 : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
             }`}
           >
