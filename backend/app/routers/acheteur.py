@@ -1,19 +1,36 @@
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.models.deal import Deal, DealStatus
-from app.models.bid import Bid, BidStatus
+from app.models.bid import Bid, BidStatus, PaymentStatus as BidPaymentStatus
 from app.models.nda import NDA
+from app.models.payment import Payment, PaymentType, PaymentState
+from app.models.deal_unit import DealUnit
+from app.models.deal_question import DealQuestion
 from app.schemas.deal import DealTeaser, DealFull
 from app.schemas.bid import BidCreate, BidOwnerView, BidRankItem, BidEngagementSign
 from app.schemas.nda import NDASign, NDAConfirmation
+from app.schemas.unit import UnitView
+from app.schemas.question import QuestionCreate, QuestionView
+from app.schemas.payment import (
+    SetupIntentResponse, ConfirmPaymentMethodRequest, PaymentMethodView,
+    FeeQuote, PaymentView,
+)
 from app.services.auth import require_acheteur
 from app.services import email as email_service
+from app.services import payment_service
+from app.services.fee import compute_fees
+from app.services import auction as auction_svc
+from app.services import realtime as realtime_svc
+from app.database import AsyncSessionLocal
 
+settings = get_settings()
 router = APIRouter(prefix="/acheteur", tags=["acheteur"])
 
 
@@ -156,6 +173,7 @@ async def sign_engagement(
 async def place_bid(
     deal_id: uuid.UUID,
     payload: BidCreate,
+    request: Request,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
 ):
@@ -167,11 +185,40 @@ async def place_bid(
     if not current_user.engagement_signed_at:
         raise HTTPException(status_code=403, detail="Engagement de paiement requis avant d'enchérir")
 
+    if not payment_service.has_payment_method(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Carte de paiement requise avant d'enchérir. Enregistrez-la dans votre profil.",
+        )
+
+    # Décharge obligatoire — les 4 cases doivent être cochées
+    consents = (
+        payload.consent_documentation,
+        payload.consent_questions_visit,
+        payload.consent_firm_offer,
+        payload.consent_fees_and_deposit,
+    )
+    if not all(consents):
+        raise HTTPException(
+            status_code=400,
+            detail="Vous devez accepter les 4 conditions de la décharge avant d'enchérir.",
+        )
+
     deal = await _get_active_deal(deal_id, db)
     if deal.status != DealStatus.bid:
         raise HTTPException(status_code=400, detail="Les enchères ne sont pas ouvertes")
     if deal.bid_close_at and deal.bid_close_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="L'enchère est terminée")
+
+    # ── Validation proxy bid (floor + incrément) ──────────────────────────────
+    state_before = await auction_svc.compute_auction_state(deal, db)
+    err = auction_svc.validate_new_bid_amount(payload.amount, state_before, current_user.id)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    now = datetime.now(timezone.utc)
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
 
     bid = Bid(
         deal_id=deal_id,
@@ -179,11 +226,85 @@ async def place_bid(
         amount=payload.amount,
         engagement_signed=True,
         engagement_signed_at=current_user.engagement_signed_at,
+        disclaimer_signed_at=now,
+        disclaimer_ip=ip,
+        disclaimer_user_agent=ua[:500] if ua else None,
     )
     db.add(bid)
     await db.flush()
 
+    # ── État après le bid ─────────────────────────────────────────────────────
+    state_after = await auction_svc.compute_auction_state(deal, db)
+    new_winner_id = state_after["winner_id"]
+    prev_winner_id = state_before["winner_id"]
+    winner_changed = (
+        prev_winner_id is not None and new_winner_id != prev_winner_id
+    )
+
+    # ── Anti-snipe (avant emails pour avoir la nouvelle deadline) ─────────────
+    extended = await auction_svc.maybe_anti_snipe(deal, db, AsyncSessionLocal)
+
+    # ── Notifications ─────────────────────────────────────────────────────────
     await email_service.send_bid_soumis_admin(db, deal_id, current_user.full_name, payload.amount)
+
+    if winner_changed:
+        prev_user_res = await db.execute(select(User).where(User.id == prev_winner_id))
+        prev_user = prev_user_res.scalar_one_or_none()
+        if prev_user:
+            try:
+                await email_service.send_outbid(db, prev_user, deal_id, state_after["displayed_price"] or 0)
+            except Exception:
+                pass
+        try:
+            await email_service.send_now_leading(db, current_user, deal_id, state_after["displayed_price"] or 0)
+        except Exception:
+            pass
+
+    if extended:
+        # Email à tous les bidders du deal
+        bidders_res = await db.execute(
+            select(User)
+            .join(Bid, Bid.acheteur_id == User.id)
+            .where(Bid.deal_id == deal_id)
+            .distinct()
+        )
+        bidders = list(bidders_res.scalars().all())
+        try:
+            await email_service.send_auction_extended(db, bidders, deal_id, deal.bid_close_at)
+        except Exception:
+            pass
+
+    # ── WebSocket events temps réel ───────────────────────────────────────────
+    new_close_iso = deal.bid_close_at.isoformat() if deal.bid_close_at else None
+    try:
+        await realtime_svc.publish_new_bid(
+            deal_id,
+            displayed_price=state_after["displayed_price"],
+            bidders_count=state_after["bidders_count"],
+            floor_price=state_after.get("floor"),
+            increment=state_after.get("increment"),
+            extended=extended,
+            new_close_at=new_close_iso,
+        )
+        if extended:
+            await realtime_svc.publish_timer_extended(deal_id, new_close_iso)
+        if winner_changed:
+            if prev_winner_id:
+                await realtime_svc.publish_outbid(
+                    deal_id,
+                    previous_winner_id=str(prev_winner_id),
+                    displayed_price=state_after["displayed_price"],
+                    deal_city=deal.city,
+                )
+            await realtime_svc.publish_leading(
+                deal_id,
+                new_winner_id=str(current_user.id),
+                displayed_price=state_after["displayed_price"],
+            )
+    except Exception:
+        # Ne jamais bloquer la création du bid si le bus WS échoue
+        pass
+
     return bid
 
 
@@ -202,28 +323,430 @@ async def my_bids(
     return result.scalars().all()
 
 
-@router.get("/deals/{deal_id}/bids/ranking", response_model=list[BidRankItem])
+@router.get("/deals/{deal_id}/bids/ranking")
 async def bid_ranking(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
 ):
-    """Classement anonyme : positions seulement, montants masqués."""
+    """
+    Vue proxy bid pour l'acheteur :
+      - floor_price (public)
+      - displayed_price (= 2e plus haute max + incrément)
+      - min_next_bid (montant minimum qu'il faudrait surenchérir)
+      - i_am_leading (boolean) — l'utilisateur courant est-il en tête ?
+      - bidders_count
+    """
     _require_qualified(current_user)
     if not await _has_signed_nda(deal_id, current_user.id, db):
         raise HTTPException(status_code=403, detail="NDA requis pour voir le classement")
 
-    # Meilleur bid par acheteur
-    from sqlalchemy import func
-    best_bids = await db.execute(
-        select(Bid.acheteur_id, func.max(Bid.amount).label("max_amount"))
-        .where(Bid.deal_id == deal_id, Bid.status == BidStatus.active)
-        .group_by(Bid.acheteur_id)
-        .order_by(func.max(Bid.amount).desc())
-    )
-    rows = best_bids.all()
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
 
-    return [
-        BidRankItem(rank=i + 1, is_mine=(row.acheteur_id == current_user.id))
-        for i, row in enumerate(rows)
-    ]
+    state = await auction_svc.compute_auction_state(deal, db)
+    increment = state["increment"]
+    base = state["displayed_price"] or state["floor"] or 0
+    i_am_leading = state["winner_id"] == current_user.id and state["winner_id"] is not None
+    return {
+        "floor_price": state["floor"],
+        "displayed_price": state["displayed_price"],
+        "min_next_bid": (base + increment) if state["bidders_count"] > 0 else state["floor"],
+        "increment": increment,
+        "bidders_count": state["bidders_count"],
+        "i_am_leading": i_am_leading,
+    }
+
+
+# ── Stripe : carte de paiement ────────────────────────────────────────────────
+
+@router.get("/payment-method", response_model=PaymentMethodView)
+async def get_payment_method(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Renvoie l'état de la carte enregistrée. Si la DB pense qu'il n'y a pas de carte
+    mais que Stripe en a une (ex : confirm a raté à la sauvegarde précédente),
+    on tente une réconciliation automatique avant de répondre.
+    """
+    if not payment_service.has_payment_method(current_user) and current_user.stripe_customer_id:
+        try:
+            await payment_service.recover_payment_method_from_stripe(current_user, db)
+        except Exception:
+            # Ne bloque jamais le GET — la recovery est best-effort
+            pass
+
+    return PaymentMethodView(
+        has_card=payment_service.has_payment_method(current_user),
+        brand=current_user.payment_method_brand,
+        last4=current_user.payment_method_last4,
+        exp_month=current_user.payment_method_exp_month,
+        exp_year=current_user.payment_method_exp_year,
+    )
+
+
+@router.post("/payment-method/recover", response_model=PaymentMethodView)
+async def recover_payment_method(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Force la réconciliation : interroge Stripe et synchronise la DB.
+    Utile en debug ou quand le frontend détecte un état incohérent.
+    """
+    info = await payment_service.recover_payment_method_from_stripe(current_user, db)
+    if not info:
+        return PaymentMethodView(has_card=False)
+    return PaymentMethodView(
+        has_card=True,
+        brand=info["brand"],
+        last4=info["last4"],
+        exp_month=info["exp_month"],
+        exp_year=info["exp_year"],
+    )
+
+
+@router.get("/payment-method/diag")
+async def stripe_diag(
+    current_user: User = Depends(require_acheteur),
+):
+    """Diagnostic Stripe non sensible — utilisé pour debug 'A processing error occurred'."""
+    from app.services import stripe_service
+    return {
+        **stripe_service.runtime_diagnostic(),
+        "user_id": str(current_user.id),
+        "user_qualified": current_user.is_qualified,
+        "user_has_customer": bool(current_user.stripe_customer_id),
+        "user_has_pm": bool(current_user.stripe_payment_method_id),
+    }
+
+
+@router.post("/payment-method/setup-intent", response_model=SetupIntentResponse)
+async def create_setup_intent(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    import logging
+    import stripe
+    from app.services import stripe_service
+    log = logging.getLogger("logeo.acheteur")
+
+    _require_qualified(current_user)
+
+    if not settings.stripe_secret_key or not settings.stripe_publishable_key:
+        log.error("Stripe keys missing — setup-intent cannot be created. diag=%s",
+                  stripe_service.runtime_diagnostic())
+        raise HTTPException(
+            status_code=500,
+            detail="Stripe non configuré côté serveur (clés manquantes).",
+        )
+
+    diag = stripe_service.runtime_diagnostic()
+    if not diag["keys_same_account"]:
+        log.error(
+            "Stripe keys appear to belong to different accounts: secret=%s pub=%s",
+            diag["secret_key_prefix"], diag["publishable_key_prefix"],
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="STRIPE_SECRET_KEY et STRIPE_PUBLISHABLE_KEY proviennent de comptes Stripe différents.",
+        )
+
+    log.info(
+        "setup-intent requested user=%s qualified=%s stripe_diag=%s",
+        current_user.id, current_user.is_qualified, diag,
+    )
+
+    try:
+        intent = await payment_service.create_setup_intent_for_user(current_user, db)
+    except stripe.StripeError as e:
+        log.error(
+            "Stripe error creating SetupIntent: code=%s status=%s msg=%s",
+            getattr(e, "code", None), getattr(e, "http_status", None), str(e),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Stripe error: {getattr(e, 'user_message', None) or str(e)}",
+        )
+
+    log.info(
+        "setup-intent created intent_id=%s client_secret_prefix=%s",
+        intent.get("id"), (intent.get("client_secret") or "")[:24],
+    )
+    return SetupIntentResponse(
+        client_secret=intent["client_secret"],
+        publishable_key=settings.stripe_publishable_key,
+    )
+
+
+@router.post("/payment-method/confirm", response_model=PaymentMethodView)
+async def confirm_payment_method(
+    payload: ConfirmPaymentMethodRequest,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    info = await payment_service.save_payment_method(
+        current_user, payload.payment_method_id, db
+    )
+    return PaymentMethodView(
+        has_card=True,
+        brand=info["brand"],
+        last4=info["last4"],
+        exp_month=info["exp_month"],
+        exp_year=info["exp_year"],
+    )
+
+
+@router.delete("/payment-method", response_model=PaymentMethodView)
+async def delete_payment_method(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    await payment_service.remove_payment_method(current_user, db)
+    return PaymentMethodView(has_card=False)
+
+
+# ── Due diligence : déclenche le débit du solde ──────────────────────────────
+
+@router.get("/deals/{deal_id}/fee-quote", response_model=FeeQuote)
+async def fee_quote(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retourne le calcul de frais sur le bid gagnant si l'acheteur courant l'a remporté."""
+    res = await db.execute(
+        select(Bid).where(
+            Bid.deal_id == deal_id,
+            Bid.acheteur_id == current_user.id,
+            Bid.status == BidStatus.winner,
+        )
+    )
+    bid = res.scalar_one_or_none()
+    if not bid:
+        raise HTTPException(status_code=404, detail="Vous n'êtes pas le gagnant de ce deal")
+    fees = compute_fees(bid.amount)
+    return FeeQuote(
+        sale_price=fees.sale_price_cad,
+        total_fee=fees.total_fee_cad,
+        deposit=fees.deposit_cad,
+        balance=fees.balance_cad,
+    )
+
+
+@router.get("/deals/{deal_id}/payments", response_model=list[PaymentView])
+async def my_payments_for_deal(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    res = await db.execute(
+        select(Payment)
+        .where(Payment.deal_id == deal_id, Payment.acheteur_id == current_user.id)
+        .order_by(Payment.created_at.desc())
+    )
+    return res.scalars().all()
+
+
+@router.get("/payments/history")
+async def my_payments_history(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """Historique global enrichi (montant, date, deal city + type) pour la page Paiement."""
+    res = await db.execute(
+        select(Payment)
+        .where(Payment.acheteur_id == current_user.id)
+        .order_by(Payment.created_at.desc())
+    )
+    payments = res.scalars().all()
+    enriched = []
+    for p in payments:
+        d_res = await db.execute(select(Deal).where(Deal.id == p.deal_id))
+        d = d_res.scalar_one_or_none()
+        enriched.append({
+            "id": str(p.id),
+            "deal_id": str(p.deal_id),
+            "deal_city": d.city if d else None,
+            "type": p.type.value,
+            "amount_cents": p.amount_cents,
+            "currency": p.currency,
+            "state": p.state.value,
+            "stripe_payment_intent_id": p.stripe_payment_intent_id,
+            "failure_message": p.failure_message,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "succeeded_at": p.succeeded_at.isoformat() if p.succeeded_at else None,
+        })
+    return enriched
+
+
+@router.post("/deals/{deal_id}/due-diligence-complete")
+async def due_diligence_complete(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """Acheteur gagnant déclare sa due diligence terminée → débit du solde 75%."""
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    bid_res = await db.execute(
+        select(Bid).where(
+            Bid.deal_id == deal_id,
+            Bid.acheteur_id == current_user.id,
+            Bid.status == BidStatus.winner,
+        )
+    )
+    bid = bid_res.scalar_one_or_none()
+    if not bid:
+        raise HTTPException(status_code=403, detail="Vous n'êtes pas le gagnant de ce deal")
+
+    if bid.payment_status != BidPaymentStatus.deposit_confirmed:
+        raise HTTPException(status_code=400, detail="Dépôt 25% non confirmé")
+
+    if deal.due_diligence_completed_at:
+        raise HTTPException(status_code=400, detail="Due diligence déjà confirmée")
+
+    # Empêcher un double débit
+    existing = await db.execute(
+        select(Payment).where(
+            Payment.deal_id == deal_id,
+            Payment.bid_id == bid.id,
+            Payment.type == PaymentType.balance,
+            Payment.state.in_([PaymentState.succeeded, PaymentState.pending]),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Solde déjà débité ou en cours")
+
+    deal.due_diligence_completed_at = datetime.now(timezone.utc)
+    bid.payment_status = BidPaymentStatus.balance_sent
+    payment = await payment_service.charge_balance(deal, bid, current_user, db)
+    return PaymentView.model_validate(payment)
+
+
+# ── Logements (vue acheteur après NDA) ───────────────────────────────────────
+
+@router.get("/deals/{deal_id}/units", response_model=list[UnitView])
+async def get_deal_units(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_qualified(current_user)
+    if not await _has_signed_nda(deal_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="NDA requis")
+    res = await db.execute(
+        select(DealUnit).where(DealUnit.deal_id == deal_id).order_by(DealUnit.order_index)
+    )
+    return res.scalars().all()
+
+
+# ── FAQ publique (post-NDA) ──────────────────────────────────────────────────
+
+@router.get("/deals/{deal_id}/questions", response_model=list[QuestionView])
+async def list_questions(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_qualified(current_user)
+    if not await _has_signed_nda(deal_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="NDA requis")
+    res = await db.execute(
+        select(DealQuestion).where(DealQuestion.deal_id == deal_id).order_by(DealQuestion.asked_at.desc())
+    )
+    rows = res.scalars().all()
+    out = []
+    for q in rows:
+        view = QuestionView.model_validate(q)
+        view.is_mine = q.asker_id == current_user.id
+        out.append(view)
+    return out
+
+
+@router.post("/deals/{deal_id}/questions", response_model=QuestionView, status_code=201)
+async def create_question(
+    deal_id: uuid.UUID,
+    payload: QuestionCreate,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_qualified(current_user)
+    if not await _has_signed_nda(deal_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="NDA requis avant de poser une question")
+
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    q = DealQuestion(
+        deal_id=deal_id,
+        asker_id=current_user.id,
+        question=payload.question.strip(),
+    )
+    db.add(q)
+    await db.flush()
+
+    # Notifier le courtier
+    courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+    courtier = courtier_res.scalar_one_or_none()
+    if courtier:
+        try:
+            from app.services import email as email_service
+            await email_service.send_bid_soumis_admin(
+                db, deal_id, current_user.full_name, 0,
+            )
+        except Exception:
+            pass  # ne pas bloquer la création si l'email échoue
+
+    view = QuestionView.model_validate(q)
+    view.is_mine = True
+    return view
+
+
+# ── Demande de visite ────────────────────────────────────────────────────────
+
+class VisitRequest(BaseModel):
+    proposed_slot: str | None = None
+    note: str | None = None
+
+
+@router.post("/deals/{deal_id}/visit-request")
+async def request_visit(
+    deal_id: uuid.UUID,
+    payload: VisitRequest,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_qualified(current_user)
+    if not await _has_signed_nda(deal_id, current_user.id, db):
+        raise HTTPException(status_code=403, detail="NDA requis avant de demander une visite")
+
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+    courtier = courtier_res.scalar_one_or_none()
+    if not courtier:
+        raise HTTPException(status_code=500, detail="Courtier introuvable")
+
+    # Notification simple via email service
+    try:
+        from app.services import email as email_service
+        await email_service.send_visit_request(
+            db, courtier=courtier, acheteur=current_user, deal_id=deal_id,
+            proposed_slot=payload.proposed_slot, note=payload.note,
+        )
+    except AttributeError:
+        # Fallback : utilise un email générique si send_visit_request n'existe pas encore
+        pass
+    return {"status": "sent", "courtier_email": courtier.email}

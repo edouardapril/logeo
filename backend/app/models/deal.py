@@ -17,11 +17,18 @@ class DealStatus(str, enum.Enum):
 
 
 class PropertyType(str, enum.Enum):
+    # Anciennes valeurs (conservées pour compat données existantes)
     multiplex = "multiplex"
     commercial = "commercial"
     mixte = "mixte"
     industriel = "industriel"
     terrain = "terrain"
+    # Nouvelles valeurs (sprint A)
+    multilogement_2_6 = "multilogement_2_6"
+    multilogement_7_24 = "multilogement_7_24"
+    projet_24_plus = "projet_24_plus"
+    terrain_constructible = "terrain_constructible"
+    residentiel_plex = "residentiel_plex"
 
 
 class Deal(Base):
@@ -37,10 +44,14 @@ class Deal(Base):
     # Jamais exposé avant le statut intro
     address_private: Mapped[str] = mapped_column(String(500), nullable=False)
 
+    postal_code: Mapped[str | None] = mapped_column(String(10))
+
     asking_price: Mapped[int] = mapped_column(Integer, nullable=False)
+    floor_price: Mapped[int | None] = mapped_column(Integer)  # admin only
     gross_revenue: Mapped[int | None] = mapped_column(Integer)
     yield_pct: Mapped[float | None] = mapped_column(Float)
     num_units: Mapped[int | None] = mapped_column(Integer)
+    photo_paths: Mapped[list | None] = mapped_column(JSON)
 
     # Visible dans le teaser public
     teaser_text: Mapped[str | None] = mapped_column(Text)
@@ -53,11 +64,34 @@ class Deal(Base):
     bid_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     bid_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Enchère proxy
+    min_bid_increment: Mapped[int] = mapped_column(Integer, nullable=False, default=10000, server_default="10000")
+    teaser_photo_path: Mapped[str | None] = mapped_column(String(500))  # photo watermarquée publique
+
     nogo_reason: Mapped[str | None] = mapped_column(Text)
+
+    # Données financières / fiche complète
+    net_revenue: Mapped[int | None] = mapped_column(Integer)
+    expenses: Mapped[dict | None] = mapped_column(JSON)
+    revenue_history: Mapped[list | None] = mapped_column(JSON)
+    municipal_evaluation: Mapped[int | None] = mapped_column(Integer)
+    zoning: Mapped[str | None] = mapped_column(String(100))
+    easements: Mapped[str | None] = mapped_column(Text)
+    work_history: Mapped[list | None] = mapped_column(JSON)
+    material_disclosures: Mapped[dict | None] = mapped_column(JSON)
+    virtual_tour_url: Mapped[str | None] = mapped_column(String(500))
+    inspection_report_path: Mapped[str | None] = mapped_column(String(500))
+    cert_localisation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    visit_notes: Mapped[str | None] = mapped_column(Text)
 
     # Frais Logeo calculés sur le bid gagnant
     fee_pct: Mapped[float | None] = mapped_column(Float)
     fee_minimum: Mapped[int | None] = mapped_column(Integer)
+
+    # Échéances Stripe
+    deposit_retry_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_diligence_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_diligence_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -65,3 +99,8 @@ class Deal(Base):
     courtier = relationship("User", back_populates="deals", foreign_keys=[courtier_id])
     bids = relationship("Bid", back_populates="deal", order_by="Bid.amount.desc()")
     ndas = relationship("NDA", back_populates="deal")
+    payments = relationship("Payment", back_populates="deal")
+    units = relationship("DealUnit", back_populates="deal", cascade="all, delete-orphan",
+                          order_by="DealUnit.order_index")
+    questions = relationship("DealQuestion", back_populates="deal", cascade="all, delete-orphan",
+                              order_by="DealQuestion.asked_at.desc()")

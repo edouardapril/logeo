@@ -47,25 +47,62 @@ def apply_watermark(
     acheteur_name: str,
     acheteur_email: str,
 ) -> str:
+    """Applique un watermark PDF. Lit depuis storage (local ou Supabase), écrit via storage."""
+    from app.services import storage
+
     watermark_buf = _create_watermark(acheteur_name, acheteur_email)
     watermark_reader = PdfReader(watermark_buf)
     watermark_page = watermark_reader.pages[0]
 
-    reader = PdfReader(source_path)
-    writer = PdfWriter()
+    # Charge le PDF source — soit depuis le disque, soit via signed URL (Supabase)
+    if storage._split_supabase(source_path):
+        try:
+            import httpx
+            r = httpx.get(storage.signed_url(source_path), timeout=30.0)
+            r.raise_for_status()
+            reader = PdfReader(io.BytesIO(r.content))
+        except Exception:
+            return source_path
+    else:
+        reader = PdfReader(source_path)
 
+    writer = PdfWriter()
     for page in reader.pages:
         page.merge_page(watermark_page)
         writer.add_page(page)
 
-    output_filename = f"{WATERMARKED_DIR}/{acheteur_id}_{uuid.uuid4()}.pdf"
-    with open(output_filename, "wb") as f:
-        writer.write(f)
+    out_buf = io.BytesIO()
+    writer.write(out_buf)
+    out_buf.seek(0)
 
-    return output_filename
+    return storage.save(
+        content=out_buf.read(),
+        filename=f"{acheteur_id}.pdf",
+        kind=storage.KIND_DOCUMENTS,
+        subfolder="watermarked",
+        content_type="application/pdf",
+    )
 
 
-def save_uploaded_file(content: bytes, filename: str, subfolder: str = "") -> str:
+def save_uploaded_file(content: bytes, filename: str, subfolder: str = "",
+                       kind: str = "documents", content_type: str | None = None) -> str:
+    """
+    Sauvegarde un fichier via la couche storage (local ou Supabase).
+    Conservé pour rétrocompat ; les nouveaux call-sites peuvent appeler
+    `app.services.storage.save()` directement.
+    """
+    from app.services.storage import save as _storage_save
+    return _storage_save(
+        content=content,
+        filename=filename,
+        kind=kind,
+        subfolder=subfolder,
+        content_type=content_type or "application/octet-stream",
+    )
+
+
+def _legacy_save_uploaded_file(content: bytes, filename: str, subfolder: str = "") -> str:
+    """Ancienne implémentation locale (gardée si on a besoin d'écrire en dur)."""
     folder = os.path.join(UPLOAD_DIR, subfolder) if subfolder else UPLOAD_DIR
     os.makedirs(folder, exist_ok=True)
     safe_name = f"{uuid.uuid4()}_{filename}"

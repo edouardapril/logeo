@@ -44,6 +44,26 @@ async def _send(to: str, subject: str, html: str) -> str | None:
 
 
 async def send_nouveau_deal(db: AsyncSession, deal_id: uuid.UUID, deal_city: str, deal_type: str):
+    # Calcule la durée de l'enchère depuis le deal pour rester cohérent avec
+    # les paramètres réels du verdict (pas de hard-code "10 jours").
+    from app.models.deal import Deal
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    duration_days = None
+    close_str = ""
+    if deal and deal.bid_open_at and deal.bid_close_at:
+        delta = deal.bid_close_at - deal.bid_open_at
+        duration_days = round(delta.total_seconds() / 86400, 1)
+        close_str = deal.bid_close_at.strftime("%d %b %Y %H:%M UTC")
+
+    duration_html = ""
+    if duration_days:
+        duration_html = (
+            f"<p><strong>Durée de l'enchère :</strong> {duration_days:g} jour"
+            f"{'s' if duration_days >= 2 else ''} "
+            f"(fermeture prévue le {close_str}).</p>"
+        )
+
     result = await db.execute(
         select(User).where(User.role == UserRole.acheteur, User.is_qualified == True, User.is_active == True)
     )
@@ -54,6 +74,7 @@ async def send_nouveau_deal(db: AsyncSession, deal_id: uuid.UUID, deal_city: str
         <h2>Nouveau deal disponible sur Logeo</h2>
         <p>Bonjour {acheteur.full_name},</p>
         <p>Un nouveau deal vient d'être publié : <strong>{deal_type} à {deal_city}</strong>.</p>
+        {duration_html}
         <p>Connectez-vous pour découvrir le teaser et signer le NDA pour accéder au dossier complet.</p>
         <a href="{settings.frontend_url}/deals/{deal_id}">Voir le deal</a>
         """
@@ -147,11 +168,25 @@ async def send_depot_confirme(
 
 
 async def send_verdict_go(db: AsyncSession, courtier: User, deal_id: uuid.UUID):
+    from app.models.deal import Deal
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+    duration_html = ""
+    if deal and deal.bid_open_at and deal.bid_close_at:
+        days = round((deal.bid_close_at - deal.bid_open_at).total_seconds() / 86400, 1)
+        close_str = deal.bid_close_at.strftime("%d %b %Y %H:%M UTC")
+        duration_html = (
+            f"<p>L'enchère est ouverte pendant <strong>{days:g} jour"
+            f"{'s' if days >= 2 else ''}</strong> — "
+            f"fermeture le <strong>{close_str}</strong>.</p>"
+        )
+
     html = f"""
     <h2>Votre deal a été approuvé !</h2>
     <p>Bonjour {courtier.full_name},</p>
     <p>Bonne nouvelle : votre soumission a été analysée et approuvée par l'équipe Logeo.</p>
     <p>Votre deal est maintenant en ligne et les enchères sont ouvertes aux acheteurs qualifiés.</p>
+    {duration_html}
     <a href="{settings.frontend_url}/courtier/deals/{deal_id}">Suivre votre deal</a>
     """
     resend_id = await _send(courtier.email, "[Logeo] Votre deal est en ligne ✓", html)
@@ -169,6 +204,68 @@ async def send_verdict_nogo(db: AsyncSession, courtier: User, deal_id: uuid.UUID
     """
     resend_id = await _send(courtier.email, "[Logeo] Résultat de l'analyse de votre soumission", html)
     await _log_email(db, EmailType.verdict_nogo, courtier.id, deal_id, resend_id)
+
+
+async def send_outbid(db: AsyncSession, previous_winner: User, deal_id: uuid.UUID, new_displayed_price: int):
+    html = f"""
+    <h2>Vous avez été dépassé</h2>
+    <p>Bonjour {previous_winner.full_name},</p>
+    <p>Une autre offre vient de prendre la tête sur le deal <strong>{str(deal_id)[:8].upper()}</strong>.</p>
+    <p>Nouveau prix affiché : <strong>{new_displayed_price:,} CAD</strong>.</p>
+    <p>Pour reprendre la tête, placez une nouvelle enchère.</p>
+    <a href="{settings.frontend_url}/acheteur/deals/{deal_id}">Voir le deal</a>
+    """.replace(",", " ")
+    await _send(previous_winner.email, "[Logeo] Vous avez été dépassé sur une enchère", html)
+
+
+async def send_now_leading(db: AsyncSession, new_winner: User, deal_id: uuid.UUID, displayed_price: int):
+    html = f"""
+    <h2>Vous êtes maintenant en avance</h2>
+    <p>Bonjour {new_winner.full_name},</p>
+    <p>Votre dernière offre vous place en tête sur le deal <strong>{str(deal_id)[:8].upper()}</strong>.</p>
+    <p>Prix affiché courant : <strong>{displayed_price:,} CAD</strong>.</p>
+    <a href="{settings.frontend_url}/acheteur/deals/{deal_id}">Suivre l'enchère</a>
+    """.replace(",", " ")
+    await _send(new_winner.email, "[Logeo] Vous êtes en tête de l'enchère", html)
+
+
+async def send_auction_extended(db: AsyncSession, bidders: list[User], deal_id: uuid.UUID, new_close_at):
+    when = new_close_at.strftime("%d %b %Y %H:%M") if new_close_at else ""
+    for u in bidders:
+        html = f"""
+        <h2>Enchère prolongée de 10 minutes</h2>
+        <p>Bonjour {u.full_name},</p>
+        <p>Une offre vient d'être placée à moins de 10 minutes de la fin de l'enchère sur le deal
+        <strong>{str(deal_id)[:8].upper()}</strong>. La fermeture est repoussée pour permettre
+        une bataille équitable.</p>
+        <p>Nouvelle fermeture : <strong>{when}</strong></p>
+        <a href="{settings.frontend_url}/acheteur/deals/{deal_id}">Voir le deal</a>
+        """
+        await _send(u.email, "[Logeo] Enchère prolongée de 10 minutes", html)
+
+
+async def send_visit_request(
+    db: AsyncSession,
+    courtier: User,
+    acheteur: User,
+    deal_id: uuid.UUID,
+    proposed_slot: str | None = None,
+    note: str | None = None,
+):
+    """Notification courtier → un acheteur veut visiter. Pas de log dédié (réutilise pas l'enum)."""
+    slot_html = f"<p><strong>Créneau proposé :</strong> {proposed_slot}</p>" if proposed_slot else ""
+    note_html = f"<p><strong>Message :</strong> {note}</p>" if note else ""
+    html = f"""
+    <h2>Demande de visite — deal {str(deal_id)[:8].upper()}</h2>
+    <p>Bonjour {courtier.full_name},</p>
+    <p>Un acheteur Logeo souhaite visiter votre propriété.</p>
+    <p><strong>Acheteur :</strong> {acheteur.full_name} — {acheteur.email}{f' — {acheteur.phone}' if acheteur.phone else ''}</p>
+    {slot_html}
+    {note_html}
+    <p>Contactez-le directement pour fixer la visite.</p>
+    <a href="{settings.frontend_url}/courtier/deals/{deal_id}">Voir le deal</a>
+    """
+    await _send(courtier.email, "[Logeo] Demande de visite", html)
 
 
 async def send_pa_signee(db: AsyncSession, gagnant: User, courtier: User, deal_id: uuid.UUID):

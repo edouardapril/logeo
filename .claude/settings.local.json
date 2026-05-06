@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git check-ignore *)",
+      "Bash(npm install *)",
+      "Bash(curl.exe *)",
+      "Bash(./venv/Scripts/python.exe -m alembic current)",
+      "Bash(./venv/Scripts/python.exe -m alembic upgrade head)",
+      "Bash(./venv/Scripts/python.exe -m pip install -q supabase==2.10.0 pillow==11.0.0à)",
+      "Bash(./venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(./venv/Scripts/python.exe -m pip install -q pillow)",
+      "Bash(./venv/Scripts/python.exe -c \"from PIL import Image, __version__; print\\('pillow', __version__\\)\")",
+      "Bash(./venv/Scripts/python.exe -c \"from supabase import create_client; print\\('supabase OK'\\)\")",
+      "Bash(./venv/Scripts/python.exe -m pip install -q supabase)",
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(./venv/Scripts/python.exe -c \"from app.main import app; print\\('routes:', len\\(app.routes\\)\\)\")",
+      "Bash(./venv/Scripts/python.exe -c ' *à)"
+    ]
+  }
+}

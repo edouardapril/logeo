@@ -29,8 +29,7 @@ async def register_courtier(payload: UserRegisterCourtier, db: AsyncSession = De
         role=UserRole.courtier,
         oaciq_number=payload.oaciq_number,
         agency_name=payload.agency_name,
-        # Convention de non-contournement signée à l'inscription
-        convention_signed_at=datetime.now(timezone.utc),
+        # Convention courtier signée séparément via /me/convention/sign après login
     )
     db.add(user)
     await db.flush()

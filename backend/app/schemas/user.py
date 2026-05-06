@@ -37,9 +37,12 @@ class UserPublic(BaseModel):
     email: str
     full_name: str
     role: UserRole
+    phone: str | None = None
     is_active: bool
     is_qualified: bool
     engagement_signed_at: datetime | None = None
+    profile_photo_path: str | None = None
+    email_notifications: bool = True
     created_at: datetime
 
     model_config = {"from_attributes": True}

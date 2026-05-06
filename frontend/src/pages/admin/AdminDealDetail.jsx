@@ -12,6 +12,7 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import Input, { Textarea } from '../../components/ui/Input'
 import Timer from '../../components/ui/Timer'
+import { fileUrl } from '../../utils/url'
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
@@ -114,7 +115,20 @@ export default function AdminDealDetail() {
             <button onClick={() => setVerdictModal('nogo')} className="btn-secondary">
               NO GO
             </button>
-            <button onClick={() => setVerdictModal('go')} className="btn-primary">
+            <button
+              onClick={() => {
+                // Préremplit bid_close_at avec now + 10 jours (durée Logeo standard)
+                const close = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+                // Format datetime-local : "YYYY-MM-DDTHH:mm" en heure locale
+                const pad = (n) => String(n).padStart(2, '0')
+                const localIso =
+                  `${close.getFullYear()}-${pad(close.getMonth() + 1)}-${pad(close.getDate())}` +
+                  `T${pad(close.getHours())}:${pad(close.getMinutes())}`
+                setVerdictForm({ ...verdictForm, bid_close_at: localIso })
+                setVerdictModal('go')
+              }}
+              className="btn-primary"
+            >
               GO · Publier
             </button>
           </div>
@@ -232,7 +246,7 @@ export default function AdminDealDetail() {
           {deal.status === 'bid' && deal.bid_close_at && (
             <div className="card p-6">
               <h2 className="font-semibold text-gray-900 mb-3">Temps restant</h2>
-              <Timer closeAt={deal.bid_close_at} size="lg" />
+              <Timer closeAt={deal.bid_close_at} size="lg" showLabel />
               <p className="text-xs text-gray-500 mt-2">
                 Ferme le {new Date(deal.bid_close_at).toLocaleString('fr-CA')}
               </p>
@@ -290,7 +304,7 @@ export default function AdminDealDetail() {
               <ul className="text-sm space-y-1.5">
                 {Object.entries(deal.documents).map(([key, path]) => (
                   <li key={key}>
-                    <a href={`/uploads/${path.split('uploads/')[1]}`} target="_blank" rel="noreferrer"
+                    <a href={fileUrl(path)} target="_blank" rel="noreferrer"
                        className="link-brand hover:underline">
                       {key.replace(/_/g, ' ')}
                     </a>
@@ -328,7 +342,7 @@ export default function AdminDealDetail() {
             type="datetime-local"
             value={verdictForm.bid_close_at}
             onChange={(e) => setVerdictForm({ ...verdictForm, bid_close_at: e.target.value })}
-            hint="Par défaut 48h après publication"
+            hint="Durée standard Logeo : 10 jours. Modifie la date si besoin."
           />
           <div className="flex justify-end gap-2 pt-4">
             <button onClick={() => setVerdictModal(null)} className="btn-secondary">Annuler</button>

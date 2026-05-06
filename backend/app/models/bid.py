@@ -43,6 +43,11 @@ class Bid(Base):
     engagement_signed: Mapped[bool] = mapped_column(Boolean, default=False)
     engagement_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Décharge obligatoire avant chaque enchère (4 cases cochées) — preuve légale
+    disclaimer_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disclaimer_ip: Mapped[str | None] = mapped_column(String(64))
+    disclaimer_user_agent: Mapped[str | None] = mapped_column(String(500))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

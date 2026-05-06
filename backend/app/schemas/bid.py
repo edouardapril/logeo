@@ -6,6 +6,11 @@ from app.models.bid import BidStatus, PaymentStatus
 
 class BidCreate(BaseModel):
     amount: int
+    # Décharge obligatoire : 4 cases doivent être cochées
+    consent_documentation: bool = False
+    consent_questions_visit: bool = False
+    consent_firm_offer: bool = False
+    consent_fees_and_deposit: bool = False
 
     @field_validator("amount")
     @classmethod
@@ -57,6 +62,8 @@ class BidAdminView(BaseModel):
     payment_status: PaymentStatus
     interac_ref: str | None
     created_at: datetime
+    disclaimer_signed_at: datetime | None = None
+    disclaimer_ip: str | None = None
 
     model_config = {"from_attributes": True}
 

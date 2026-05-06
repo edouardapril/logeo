@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Building2 } from 'lucide-react'
+import { Plus, Building2, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { courtierListDealsApi } from '../../api/courtier'
+import { conventionStatusApi } from '../../api/profile'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 
@@ -12,6 +13,10 @@ export default function CourtierDashboard() {
   const { data: deals, isLoading } = useQuery({
     queryKey: ['courtier', 'deals'],
     queryFn: courtierListDealsApi,
+  })
+  const { data: conv } = useQuery({
+    queryKey: ['convention-status'],
+    queryFn: conventionStatusApi,
   })
 
   return (
@@ -25,6 +30,29 @@ export default function CourtierDashboard() {
           <Plus className="h-4 w-4" /> Soumettre un deal
         </Link>
       </div>
+
+      {/* Bandeau convention */}
+      {conv?.needs_resign ? (
+        <div className="card p-4 mb-6 bg-amber-50 border-amber-200 flex items-start gap-3">
+          <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900 text-sm">Convention courtier à signer</p>
+            <p className="text-xs text-amber-800 mt-1">
+              Vous devez accepter explicitement les clauses (prix plancher, non-contournement, exactitude des données, pénalités) pour pouvoir soumettre des deals.
+            </p>
+          </div>
+          <Link to="/courtier/convention" className="btn-primary text-xs whitespace-nowrap">
+            Signer maintenant
+          </Link>
+        </div>
+      ) : conv?.signed && (
+        <div className="card p-3 mb-6 bg-emerald-50 border-emerald-200 flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-emerald-600" />
+          <p className="text-xs text-emerald-900">
+            Convention {conv.version} signée le {new Date(conv.signed_at).toLocaleDateString('fr-CA')}
+          </p>
+        </div>
+      )}
 
       {isLoading ? <Spinner /> : !deals?.length ? (
         <div className="card p-12 text-center">

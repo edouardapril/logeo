@@ -2,11 +2,20 @@ import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, Upload, FileText, AlertTriangle, Clock } from 'lucide-react'
-import { courtierGetDealApi, uploadPaApi } from '../../api/courtier'
+import {
+  ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send,
+} from 'lucide-react'
+import {
+  courtierGetDealApi, uploadPaApi,
+  courtierListQuestionsApi, answerQuestionApi,
+} from '../../api/courtier'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Timer from '../../components/ui/Timer'
+import { Textarea } from '../../components/ui/Input'
+import ReviewSection from '../../components/deal/ReviewSection'
+import { useAuth } from '../../contexts/AuthContext'
+import { listReviewsForDealApi } from '../../api/reviews'
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
@@ -14,11 +23,25 @@ const formatMoney = (n) =>
 export default function CourtierDealDetail() {
   const { dealId } = useParams()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
   const [paFile, setPaFile] = useState(null)
+  const [answerDraft, setAnswerDraft] = useState({})
 
   const { data: deal, isLoading } = useQuery({
     queryKey: ['courtier', 'deal', dealId],
     queryFn: () => courtierGetDealApi(dealId),
+  })
+
+  const { data: questions } = useQuery({
+    queryKey: ['courtier', 'questions', dealId],
+    queryFn: () => courtierListQuestionsApi(dealId),
+    refetchInterval: 30_000,
+  })
+
+  const { data: reviews } = useQuery({
+    queryKey: ['reviews', dealId],
+    queryFn: () => listReviewsForDealApi(dealId),
+    enabled: !!deal && deal.status === 'pa_signed',
   })
 
   const uploadPa = useMutation({
@@ -31,6 +54,16 @@ export default function CourtierDealDetail() {
       toast.success('Promesse d\'achat enregistrée')
       queryClient.invalidateQueries({ queryKey: ['courtier'] })
       setPaFile(null)
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const answerMut = useMutation({
+    mutationFn: ({ qid, answer }) => answerQuestionApi(dealId, qid, answer),
+    onSuccess: (_, vars) => {
+      toast.success('Réponse publiée')
+      setAnswerDraft({ ...answerDraft, [vars.qid]: '' })
+      queryClient.invalidateQueries({ queryKey: ['courtier', 'questions', dealId] })
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
@@ -75,7 +108,7 @@ export default function CourtierDealDetail() {
           <p className="text-sm text-[#1A1A1A] mb-3">
             Votre deal est en ligne. Les acheteurs qualifiés peuvent maintenant signer le NDA et enchérir.
           </p>
-          <Timer closeAt={deal.bid_close_at} size="lg" />
+          <Timer closeAt={deal.bid_close_at} size="lg" showLabel />
         </div>
       )}
 
@@ -143,6 +176,66 @@ export default function CourtierDealDetail() {
         </dl>
       </div>
 
+      {/* Q&A — répondre aux questions des acheteurs */}
+      <div className="card p-6 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-[#C2410C]" />
+          Questions des acheteurs ({questions?.length || 0})
+          {questions?.some(q => !q.answer) && (
+            <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full ring-1 ring-inset ring-amber-200">
+              {questions.filter(q => !q.answer).length} sans réponse
+            </span>
+          )}
+        </h2>
+        {!questions?.length ? (
+          <p className="text-sm text-gray-500">Aucune question pour le moment.</p>
+        ) : (
+          <ul className="space-y-3">
+            {questions.map(q => (
+              <li key={q.id} className="border border-gray-200 rounded-lg p-3">
+                <p className="text-xs text-gray-500 mb-1">
+                  {new Date(q.asked_at).toLocaleString('fr-CA')}
+                  {!q.answer && (
+                    <span className="ml-2 text-amber-700 font-medium">· Sans réponse</span>
+                  )}
+                </p>
+                <p className="text-sm font-medium text-gray-900 mb-2">{q.question}</p>
+
+                {q.answer ? (
+                  <div className="mt-2 pl-3 border-l-2 border-[#FDBA74] text-sm text-gray-700">
+                    <p className="whitespace-pre-line">{q.answer}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Répondu le {new Date(q.answered_at).toLocaleString('fr-CA')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 mt-2">
+                    <Textarea
+                      label=""
+                      rows={2}
+                      value={answerDraft[q.id] || ''}
+                      onChange={(e) => setAnswerDraft({ ...answerDraft, [q.id]: e.target.value })}
+                      placeholder="Votre réponse..."
+                    />
+                    <button
+                      onClick={() => {
+                        const a = (answerDraft[q.id] || '').trim()
+                        if (!a) { toast.error('Réponse vide'); return }
+                        answerMut.mutate({ qid: q.id, answer: a })
+                      }}
+                      disabled={answerMut.isPending}
+                      className="btn-primary text-sm"
+                    >
+                      <Send className="h-3.5 w-3.5" /> Publier
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Upload PA si statut intro */}
       {deal.status === 'intro' && (
         <div className="card p-6">
@@ -175,6 +268,18 @@ export default function CourtierDealDetail() {
           >
             {uploadPa.isPending ? 'Envoi...' : 'Envoyer la PA signée'}
           </button>
+        </div>
+      )}
+
+      {/* Évaluations — visible quand la PA est signée */}
+      {deal.status === 'pa_signed' && (
+        <div className="mt-6">
+          <ReviewSection
+            dealId={dealId}
+            canRate
+            rateeRoleLabel="l'acheteur gagnant"
+            alreadyRated={!!reviews?.some(r => r.rater_id === user?.id)}
+          />
         </div>
       )}
     </div>

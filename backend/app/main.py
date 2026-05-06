@@ -6,7 +6,10 @@ import os
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import auth, admin, courtier, acheteur
+from app.routers import (
+    auth, admin, courtier, acheteur, payments, profile,
+    storage as storage_router, reviews, public, realtime as realtime_router,
+)
 from app.services.auction import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -34,6 +37,7 @@ app.add_middleware(
     allow_origins=[
         settings.frontend_url,
         "http://localhost:5173",
+        "http://localhost:5174",
         "https://logeo-mu.vercel.app",
         "https://logeo.ca",
         "https://www.logeo.ca",
@@ -52,6 +56,13 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(courtier.router, prefix="/api/v1")
 app.include_router(acheteur.router, prefix="/api/v1")
+app.include_router(payments.router, prefix="/api/v1")
+app.include_router(profile.router, prefix="/api/v1")
+app.include_router(storage_router.router, prefix="/api/v1")
+app.include_router(reviews.router, prefix="/api/v1")
+app.include_router(public.router, prefix="/api/v1")
+# WebSockets : pas de préfixe /api/v1, conventionnellement sous /ws/*
+app.include_router(realtime_router.router)
 
 
 @app.get("/api/v1/health")
