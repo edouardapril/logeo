@@ -70,10 +70,10 @@ export default function SubmitDeal() {
     easements: '',
   })
 
-  // Expenses : taxes, assurances, entretien, autres
+  // Expenses : taxes, assurances, entretien, frais de gestion, autres
   const [expenses, setExpenses] = useState({
     taxes_municipales: '', taxes_scolaires: '',
-    assurances: '', entretien: '', autres: '',
+    assurances: '', entretien: '', frais_gestion: '', autres: '',
   })
 
   // work_history : list of { category, year, note }
@@ -365,6 +365,9 @@ export default function SubmitDeal() {
               <Input label="Entretien" type="number" min="0"
                      value={expenses.entretien}
                      onChange={(e) => setExpenses({ ...expenses, entretien: e.target.value })} />
+              <Input label="Frais de gestion (CAD)" type="number" min="0" placeholder="5000"
+                     value={expenses.frais_gestion}
+                     onChange={(e) => setExpenses({ ...expenses, frais_gestion: e.target.value })} />
               <Input label="Autres" type="number" min="0"
                      value={expenses.autres}
                      onChange={(e) => setExpenses({ ...expenses, autres: e.target.value })} />
