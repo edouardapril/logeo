@@ -33,7 +33,7 @@ const TOS_TEXT = `LOGEO — CONDITIONS GÉNÉRALES D'UTILISATION (résumé)
 
 3. Règles des enchères
    - Prix plancher fixé par le courtier, public, contraignant pour le vendeur
-   - Incrément minimum 10 000 $ CAD
+   - Incrément minimum 5 000 $ CAD
    - Anti-snipe : timer prolongé +10 min si bid <10 min de la fin
    - Bids fermes et irrévocables
 

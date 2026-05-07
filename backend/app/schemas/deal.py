@@ -78,7 +78,7 @@ class DealTeaser(BaseModel):
     mrc: str | None = None
     postal_code: str | None = None
     floor_price: int | None = None
-    min_bid_increment: int = 10000
+    min_bid_increment: int = 5000
     gross_revenue: int | None
     net_revenue: int | None = None
     yield_pct: float | None

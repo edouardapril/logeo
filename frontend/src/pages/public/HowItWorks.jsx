@@ -21,7 +21,7 @@ const ACHETEUR_STEPS = [
   { icon: Lock, title: 'Accédez aux deals exclusifs off-market',
     body: "Marketplace de multilogements partout au Québec. Le NDA donne accès au dossier complet (adresse, baux, financiers)." },
   { icon: Trophy, title: 'Enchérissez anonymement (proxy bid)',
-    body: "Vous fixez votre maximum. Le système enchérit pour vous à l'incrément +10 000 $ jusqu'à votre plafond. Aucun nom ni montant n'est public." },
+    body: "Vous fixez votre maximum. Le système enchérit pour vous à l'incrément +5 000 $ jusqu'à votre plafond. Aucun nom ni montant n'est public." },
   { icon: Coins, title: 'Gagnez et complétez votre due diligence',
     body: "Si gagnant, dépôt 25 % débité automatiquement. 24h pour confirmer la due diligence puis solde 75 %. Logeo gère le reste." },
 ]
@@ -29,7 +29,7 @@ const ACHETEUR_STEPS = [
 const FAQ = [
   {
     q: "Comment fonctionne le proxy bid ?",
-    a: "Vous indiquez votre offre maximum. Le système enchérit pour vous, à l'incrément minimum (10 000 $), jusqu'à concurrencer le bidder le plus haut. Le prix affiché public n'est jamais votre maximum — c'est seulement le 2ᵉ plus haut max + 10 000 $.",
+    a: "Vous indiquez votre offre maximum. Le système enchérit pour vous, à l'incrément minimum (5 000 $), jusqu'à concurrencer le bidder le plus haut. Le prix affiché public n'est jamais votre maximum — c'est seulement le 2ᵉ plus haut max + 5 000 $.",
   },
   {
     q: "Qu'est-ce que le prix plancher ?",

@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     signed_url_ttl_seconds: int = 3600
 
     # Enchère
-    bid_min_increment: int = 10000           # CAD
+    bid_min_increment: int = 5000            # CAD
     anti_snipe_window_minutes: int = 10
     anti_snipe_extension_minutes: int = 10
 

@@ -70,7 +70,7 @@ class Deal(Base):
     bid_close_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Enchère proxy
-    min_bid_increment: Mapped[int] = mapped_column(Integer, nullable=False, default=10000, server_default="10000")
+    min_bid_increment: Mapped[int] = mapped_column(Integer, nullable=False, default=5000, server_default="5000")
     teaser_photo_path: Mapped[str | None] = mapped_column(String(500))  # photo watermarquée publique
 
     nogo_reason: Mapped[str | None] = mapped_column(Text)
