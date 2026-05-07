@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+from app.services import storage as storage_svc
 
 
 class NDASign(BaseModel):
@@ -20,3 +21,7 @@ class NDAConfirmation(BaseModel):
     pdf_path: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer('pdf_path')
+    def _ser_pdf_path(self, v):
+        return storage_svc.to_signed_url(v)

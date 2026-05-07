@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_serializer
+from app.services import storage as storage_svc
 
 
 class ProfileUpdate(BaseModel):
@@ -27,3 +28,7 @@ class ProfileView(BaseModel):
     email_notifications: bool = True
     is_active: bool = True
     is_qualified: bool = False
+
+    @field_serializer('profile_photo_path')
+    def _ser_profile_photo_path(self, v):
+        return storage_svc.to_signed_url(v)

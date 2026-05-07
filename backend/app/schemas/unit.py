@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
+from app.services import storage as storage_svc
 
 
 class UnitWrite(BaseModel):
@@ -23,3 +24,11 @@ class UnitView(UnitWrite):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer('photo_paths')
+    def _ser_photo_paths(self, v):
+        return storage_svc.to_signed_urls(v)
+
+    @field_serializer('lease_path')
+    def _ser_lease_path(self, v):
+        return storage_svc.to_signed_url(v)

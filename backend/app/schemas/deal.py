@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from app.models.deal import DealStatus, PropertyType
+from app.services import storage as storage_svc
 
 
 class DealSubmit(BaseModel):
@@ -53,6 +54,17 @@ class DealPatch(BaseModel):
     floor_price: int | None = None  # ignoré côté courtier — admin-only patch séparé
 
 
+class TeaserSelection(BaseModel):
+    """Sélection courtier des photos teaser. Watermark généré côté serveur.
+
+    cover_original         : path d'une photo de deal.photo_paths (couverture)
+    secondary_originals    : 0 à 2 paths de deal.photo_paths (secondaires)
+    Aucun chevauchement permis entre cover et secondaires.
+    """
+    cover_original: str
+    secondary_originals: list[str] = []
+
+
 class DealAdminUpdate(BaseModel):
     teaser_text: str | None = None
     fee_pct: float | None = None
@@ -96,6 +108,17 @@ class DealTeaser(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    # Transformation path → URL au moment de la sérialisation (output uniquement).
+    # Les champs sont stockés en DB sous forme de paths relatifs ; le frontend
+    # reçoit des URLs prêtes à l'usage. Hérité par DealFull et DealAdminView.
+    @field_serializer('teaser_photo_path')
+    def _ser_teaser_photo_path(self, v):
+        return storage_svc.to_public_url(v)
+
+    @field_serializer('teaser_photo_paths')
+    def _ser_teaser_photo_paths(self, v):
+        return storage_svc.to_public_urls(v)
+
 
 # Vue complète après NDA : adresse + courtier dévoilés + financials + photos privées
 class DealFull(DealTeaser):
@@ -120,6 +143,22 @@ class DealFull(DealTeaser):
     visit_notes: str | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer('photo_paths')
+    def _ser_photo_paths(self, v):
+        return storage_svc.to_signed_urls(v)
+
+    @field_serializer('full_report_path')
+    def _ser_full_report_path(self, v):
+        return storage_svc.to_signed_url(v)
+
+    @field_serializer('inspection_report_path')
+    def _ser_inspection_report_path(self, v):
+        return storage_svc.to_signed_url(v)
+
+    @field_serializer('documents')
+    def _ser_documents(self, v):
+        return storage_svc.to_signed_url_values(v)
 
 
 # Vue admin : tout (incl. floor_price)

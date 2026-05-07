@@ -25,6 +25,13 @@ function isSupabasePath(p) {
  */
 export function fileUrl(path) {
   if (!path) return '#'
+
+  // Le backend renvoie désormais des URLs full (public_url / signed_url) directement
+  // sur la plupart des endpoints (fix paths→URLs). On les laisse passer telles quelles ;
+  // la logique ci-dessous reste utile pour les endpoints qui renvoient encore des paths
+  // bruts (ex: POST /deals/{id}/photos retourne photo_paths brut pour le flux teaser-selection).
+  if (/^https?:\/\//i.test(path)) return path
+
   let p = String(path).replace(/\\/g, '/').replace(/^\.?\/+/, '')
 
   if (p.startsWith('uploads/')) return `${API_BASE}/${p}`

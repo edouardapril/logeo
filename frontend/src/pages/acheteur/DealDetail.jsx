@@ -27,6 +27,7 @@ import BidRanking from '../../components/deal/BidRanking'
 import BidDisclaimerModal from '../../components/deal/BidDisclaimerModal'
 import ReviewSection from '../../components/deal/ReviewSection'
 import ActivityFeed from '../../components/deal/ActivityFeed'
+import DealPhotoSlideshow from '../../components/deal/DealPhotoSlideshow'
 import AnimatedNumber from '../../components/ui/AnimatedNumber'
 import CountdownBoxes from '../../components/ui/CountdownBoxes'
 import { listReviewsForDealApi } from '../../api/reviews'
@@ -322,17 +323,15 @@ export default function DealDetail() {
         </div>
       </div>
 
-      {/* Galerie photos */}
+      {/* Galerie photos (post-NDA, slideshow toutes photos HD) */}
       {deal.photo_paths?.length > 0 && (
-        <div className="mb-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {deal.photo_paths.map((p, i) => (
-              <a key={p} href={fileUrl(p)} target="_blank" rel="noreferrer">
-                <img src={fileUrl(p)} alt={`Photo ${i + 1}`}
-                     className="h-32 w-full object-cover rounded-lg hover:opacity-90" />
-              </a>
-            ))}
-          </div>
+        <div className="mb-6 card overflow-hidden">
+          <DealPhotoSlideshow
+            photos={deal.photo_paths}
+            height="h-80 md:h-96"
+            showThumbnails
+            alt={deal.city}
+          />
         </div>
       )}
 

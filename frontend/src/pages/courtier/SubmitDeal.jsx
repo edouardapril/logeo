@@ -9,7 +9,7 @@ import {
 import Input, { Select, Textarea } from '../../components/ui/Input'
 import {
   submitDealApi, uploadDocumentsApi, uploadDealPhotosApi,
-  createUnitApi,
+  createUnitApi, setTeaserSelectionApi,
 } from '../../api/courtier'
 import { conventionStatusApi } from '../../api/profile'
 import { PROPERTY_TYPES } from '../../utils/constants'
@@ -88,6 +88,9 @@ export default function SubmitDeal() {
     declaration_vendeur: null, rapport_complet: null,
   })
   const [photos, setPhotos] = useState([])
+  // Sélection teaser : 1 cover obligatoire si photos.length > 0, 0-2 secondaires
+  const [coverIndex, setCoverIndex] = useState(null)
+  const [secondaryIndices, setSecondaryIndices] = useState([])
 
   // Logements (créés en local, POST après création du deal)
   const [units, setUnits] = useState([])
@@ -138,8 +141,19 @@ export default function SubmitDeal() {
       })
       if (hasDoc) await uploadDocumentsApi(deal.id, fd)
 
-      // Photos générales
-      if (photos.length) await uploadDealPhotosApi(deal.id, photos)
+      // Photos générales + sélection teaser (cover + secondaires) en 2 temps :
+      // 1) upload des originaux pour récupérer leurs paths
+      // 2) PATCH /teaser-selection pour générer les watermarks publics
+      if (photos.length) {
+        const photoResp = await uploadDealPhotosApi(deal.id, photos)
+        if (coverIndex !== null) {
+          const paths = photoResp.photo_paths || []
+          await setTeaserSelectionApi(deal.id, {
+            cover_original: paths[coverIndex],
+            secondary_originals: secondaryIndices.map(i => paths[i]),
+          })
+        }
+      }
 
       // Logements
       for (let i = 0; i < units.length; i++) {
@@ -177,6 +191,10 @@ export default function SubmitDeal() {
       toast.error('Le prix plancher est obligatoire — c\'est l\'engagement ferme du vendeur')
       return
     }
+    if (photos.length > 0 && coverIndex === null) {
+      toast.error('Sélectionnez 1 photo de couverture')
+      return
+    }
     submit.mutate()
   }
 
@@ -190,7 +208,30 @@ export default function SubmitDeal() {
     setPhotos(merged)
     e.target.value = ''
   }
-  const removePhoto = (i) => setPhotos(photos.filter((_, idx) => idx !== i))
+  const removePhoto = (i) => {
+    setPhotos(photos.filter((_, idx) => idx !== i))
+    if (coverIndex === i) setCoverIndex(null)
+    else if (coverIndex !== null && coverIndex > i) setCoverIndex(coverIndex - 1)
+    setSecondaryIndices(
+      secondaryIndices.filter(x => x !== i).map(x => x > i ? x - 1 : x)
+    )
+  }
+
+  const setCover = (i) => {
+    setCoverIndex(i)
+    setSecondaryIndices(secondaryIndices.filter(x => x !== i))
+  }
+
+  const toggleSecondary = (i) => {
+    if (i === coverIndex) return
+    if (secondaryIndices.includes(i)) {
+      setSecondaryIndices(secondaryIndices.filter(x => x !== i))
+    } else if (secondaryIndices.length < 2) {
+      setSecondaryIndices([...secondaryIndices, i])
+    } else {
+      toast('Maximum 2 photos secondaires', { icon: 'ℹ️' })
+    }
+  }
 
   const addWork = () => setWorkHistory([...workHistory, { category: 'toiture', year: '', note: '' }])
   const updateWork = (i, k, v) => {
@@ -503,21 +544,61 @@ export default function SubmitDeal() {
             <h2 className="font-semibold text-gray-900 flex items-center gap-2">
               <ImageIcon className="h-4 w-4 text-[#C2410C]" /> Photos extérieur ({photos.length}/{MAX_PHOTOS})
             </h2>
-            <p className="text-sm text-gray-500 mt-1">JPG, PNG ou WebP — max {MAX_PHOTOS}. Photos de logements à part, dans la section logements.</p>
+            <p className="text-sm text-gray-500 mt-1">JPG, PNG ou WebP — max {MAX_PHOTOS}. Sélectionnez 1 photo de couverture (★) et jusqu'à 2 secondaires : ces 1 à 3 photos seront watermarquées et publiques avant NDA.</p>
           </div>
 
           {photos.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-              {photos.map((p, i) => (
-                <div key={i} className="relative group">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {photos.map((p, i) => {
+                const isCover = coverIndex === i
+                const secondaryRank = secondaryIndices.indexOf(i)
+                const isSecondary = secondaryRank >= 0
+                const secondaryDisabled = !isSecondary && !isCover && secondaryIndices.length >= 2
+                return (
+                <div key={i} className="relative">
                   <img src={URL.createObjectURL(p)} alt={`Photo ${i + 1}`}
-                       className="h-24 w-full object-cover rounded-lg" />
+                       className={`h-32 w-full object-cover rounded-lg ${
+                         isCover ? 'ring-2 ring-amber-500' : isSecondary ? 'ring-2 ring-blue-500' : ''
+                       }`} />
+                  {isCover && (
+                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wide">
+                      ★ Couverture
+                    </span>
+                  )}
+                  {isSecondary && (
+                    <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-blue-500 text-white text-[10px] font-bold uppercase tracking-wide">
+                      Sec. {secondaryRank + 1}
+                    </span>
+                  )}
                   <button type="button" onClick={() => removePhoto(i)}
-                          className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          aria-label="Supprimer la photo"
+                          className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center">
                     <X className="h-3.5 w-3.5" />
                   </button>
+                  <div className="absolute bottom-1 inset-x-1 flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCover(i)}
+                      className={`flex-1 text-[10px] font-semibold py-1 rounded transition ${
+                        isCover
+                          ? 'bg-amber-500 text-white shadow'
+                          : 'bg-white/90 text-gray-700 hover:bg-amber-50 hover:text-amber-700'
+                      }`}
+                    >★ Couverture</button>
+                    <button
+                      type="button"
+                      onClick={() => toggleSecondary(i)}
+                      disabled={secondaryDisabled}
+                      className={`flex-1 text-[10px] font-semibold py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isSecondary
+                          ? 'bg-blue-500 text-white shadow'
+                          : 'bg-white/90 text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                      }`}
+                    >Secondaire</button>
+                  </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 

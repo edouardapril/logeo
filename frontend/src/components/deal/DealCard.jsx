@@ -12,9 +12,10 @@ const formatMoney = (n) =>
   }).format(n)
 
 export default function DealCard({ deal, to }) {
-  // Pre-NDA on n'expose que `teaser_photo_path` (watermarqué public).
+  // Pre-NDA on n'expose que les paths watermarqués publics (cover = [0]).
   // Si on a accès à `photo_paths` (post-NDA), on prend la première photo HD.
-  const cover = deal.teaser_photo_path || deal.photo_paths?.[0]
+  // Fallback `teaser_photo_path` legacy pour les deals créés avant la refonte.
+  const cover = deal.teaser_photo_paths?.[0] || deal.teaser_photo_path || deal.photo_paths?.[0]
   // Post-refonte : 'terrain_constructible' est mappé vers 'terrain' en DB (filet legacy)
   const isLand = deal.property_type === 'terrain'
               || deal.property_type === 'terrain_constructible'

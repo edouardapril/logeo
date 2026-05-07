@@ -39,11 +39,11 @@ export default function PublicDealCard({ deal, detailHref }) {
 
   return (
     <article className="card overflow-hidden group hover:shadow-md hover:border-[#FDBA74] transition-all flex flex-col">
-      {/* Photo watermarquée + badges */}
+      {/* Photo watermarquée (cover = teaser_photo_paths[0]) + badges */}
       <div className="relative h-48 overflow-hidden bg-gray-100">
-        {deal.teaser_photo_path ? (
+        {(deal.teaser_photo_paths?.[0] || deal.teaser_photo_path) ? (
           <img
-            src={fileUrl(deal.teaser_photo_path)}
+            src={fileUrl(deal.teaser_photo_paths?.[0] || deal.teaser_photo_path)}
             alt={deal.city}
             className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy"
@@ -96,7 +96,7 @@ export default function PublicDealCard({ deal, detailHref }) {
           </div>
         </div>
 
-        {/* 4 chiffres financiers clés */}
+        {/* 4 chiffres financiers clés (spec chantier B) */}
         <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
           <div className="rounded-lg bg-gray-50 p-2.5">
             <p className="text-[10px] uppercase tracking-wide text-gray-500">Prix plancher</p>
@@ -106,16 +106,14 @@ export default function PublicDealCard({ deal, detailHref }) {
             <p className="text-[10px] uppercase tracking-wide text-gray-500">Revenus bruts</p>
             <p className="font-bold text-gray-900">{formatMoney(deal.gross_revenue)}</p>
           </div>
+          <div className="rounded-lg bg-gray-50 p-2.5">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Revenus nets</p>
+            <p className="font-bold text-gray-900">{formatMoney(deal.net_revenue)}</p>
+          </div>
           <div className="rounded-lg bg-emerald-50 p-2.5">
             <p className="text-[10px] uppercase tracking-wide text-emerald-700">TGA</p>
             <p className="font-bold text-emerald-800">
               {deal.cap_rate != null ? `${deal.cap_rate}%` : '—'}
-            </p>
-          </div>
-          <div className="rounded-lg bg-blue-50 p-2.5">
-            <p className="text-[10px] uppercase tracking-wide text-blue-700">Prix / éval.</p>
-            <p className="font-bold text-blue-800">
-              {deal.ratio_floor_eval_pct != null ? `${deal.ratio_floor_eval_pct}%` : '—'}
             </p>
           </div>
         </div>

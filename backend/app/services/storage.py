@@ -171,3 +171,63 @@ def delete(path: str) -> None:
         httpx.delete(url, headers=_supabase_headers(), timeout=15.0)
     except httpx.HTTPError as e:
         log.warning("Supabase delete failed: %s", e)
+
+
+def read(path: str) -> bytes:
+    """Lit le contenu binaire d'un fichier précédemment sauvé via save().
+
+    Local : ouvre le fichier sur disque.
+    Supabase : GET via signed URL (works pour les buckets privés et publics).
+    """
+    sb = _split_supabase(path)
+    if not sb:
+        with open(path, "rb") as f:
+            return f.read()
+    url = signed_url(path, expires_in=60)
+    r = httpx.get(url, timeout=30.0)
+    r.raise_for_status()
+    return r.content
+
+
+# ── Sérialisation : path → URL utilisable par le frontend ───────────────────
+#
+# Les helpers ci-dessous sont utilisés par les schemas Pydantic (field_serializer)
+# et les endpoints qui retournent des dicts ad-hoc, pour transformer les paths
+# stockés en DB en URLs prêtes à l'affichage. La DB conserve toujours le path
+# brut — la transformation est purement un step de sérialisation.
+
+def to_public_url(path: str | None) -> str | None:
+    """Path bucket public (deals) → URL publique directe."""
+    return public_url(path) if path else None
+
+
+def to_public_urls(paths: list | None) -> list[str] | None:
+    """Liste de paths publics → liste d'URLs publiques."""
+    if not paths:
+        return None
+    return [public_url(p) for p in paths if p]
+
+
+def to_signed_url(path: str | None) -> str | None:
+    """Path bucket privé (documents, profiles) → signed URL avec TTL."""
+    return signed_url(path) if path else None
+
+
+def to_signed_urls(paths: list | None) -> list[str] | None:
+    """Liste de paths privés → liste de signed URLs."""
+    if not paths:
+        return None
+    return [signed_url(p) for p in paths if p]
+
+
+def to_signed_url_values(d: dict | None) -> dict | None:
+    """Transforme les VALEURS d'un dict en signed URLs (clés intactes).
+
+    Utilisé pour le champ Deal.documents = {"baux": "documents/...", "taxes": "..."}.
+    """
+    if not d:
+        return None
+    return {
+        k: (signed_url(v) if isinstance(v, str) and v else v)
+        for k, v in d.items()
+    }

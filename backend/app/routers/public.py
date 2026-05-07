@@ -17,6 +17,7 @@ from app.models.deal_review import DealReview
 from app.models.nda import NDA
 from app.models.deal_question import DealQuestion
 from app.services.auction import compute_auction_state
+from app.services import storage as storage_svc
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -83,7 +84,7 @@ async def public_acheteur_profile(
     return {
         "id": str(user.id),
         "full_name": user.full_name,
-        "profile_photo_path": user.profile_photo_path,
+        "profile_photo_path": storage_svc.to_signed_url(user.profile_photo_path),
         "won_deals": won_count,
         "completed_deals": completed_count,
         "average_rating": round(avg, 2) if avg is not None else None,
@@ -135,7 +136,7 @@ async def public_courtier_profile(
         "full_name": user.full_name,
         "agency_name": user.agency_name,
         "oaciq_number": user.oaciq_number,
-        "profile_photo_path": user.profile_photo_path,
+        "profile_photo_path": storage_svc.to_signed_url(user.profile_photo_path),
         "published_deals": published,
         "completed_deals": completed,
         "average_rating": round(avg, 2) if avg is not None else None,
@@ -193,7 +194,7 @@ async def leaderboard(
     for r in acheteurs_res.all():
         top_acheteurs.append({
             "id": str(r.id), "full_name": r.full_name,
-            "profile_photo_path": r.profile_photo_path,
+            "profile_photo_path": storage_svc.to_signed_url(r.profile_photo_path),
             "completed_deals": int(r.completed or 0),
             "average_rating": round(float(r.avg), 2) if r.avg is not None else None,
             "review_count": int(r.cnt or 0),
@@ -233,7 +234,7 @@ async def leaderboard(
         top_courtiers.append({
             "id": str(r.id), "full_name": r.full_name,
             "agency_name": r.agency_name,
-            "profile_photo_path": r.profile_photo_path,
+            "profile_photo_path": storage_svc.to_signed_url(r.profile_photo_path),
             "published_deals": int(r.published or 0),
             "completed_deals": int(r.completed or 0),
             "average_rating": round(float(r.avg), 2) if r.avg is not None else None,
@@ -342,9 +343,11 @@ def _serialize_public_deal(d, state, nda_count):
         "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
         # Teaser visuel + texte (max 3 photos watermarquées — sprint v13)
         "teaser_text": d.teaser_text,
-        "teaser_photo_path": d.teaser_photo_path,
-        "teaser_photo_paths": d.teaser_photo_paths or (
-            [d.teaser_photo_path] if d.teaser_photo_path else []
+        "teaser_photo_path": storage_svc.to_public_url(d.teaser_photo_path),
+        "teaser_photo_paths": storage_svc.to_public_urls(
+            d.teaser_photo_paths or (
+                [d.teaser_photo_path] if d.teaser_photo_path else []
+            )
         ),
         # Preuve sociale
         "ndas_count": nda_count,

@@ -8,7 +8,7 @@ from app.models.user import User
 from app.models.deal import Deal, DealStatus, PropertyType
 from app.models.deal_unit import DealUnit
 from app.models.deal_question import DealQuestion
-from app.schemas.deal import DealSubmit, DealTeaser, DealListItem, DealPatch
+from app.schemas.deal import DealSubmit, DealTeaser, DealListItem, DealPatch, TeaserSelection
 from app.schemas.unit import UnitWrite, UnitView
 from app.schemas.question import QuestionView, QuestionAnswer
 from app.services.auth import require_courtier
@@ -234,12 +234,6 @@ async def upload_photos(
     subfolder = f"deals/{deal_id}/photos"
     new_paths: list[str] = []
 
-    # Sprint v13 item 5 — 3 photos teaser watermarquées au total
-    teasers = list(deal.teaser_photo_paths or [])
-    if not teasers and deal.teaser_photo_path:
-        # Migration douce : récupère la photo teaser legacy si elle existe
-        teasers = [deal.teaser_photo_path]
-
     for f in files:
         if f.content_type not in ALLOWED_PHOTO_MIMES:
             raise HTTPException(status_code=400, detail=f"Format non supporté : {f.content_type}")
@@ -255,30 +249,91 @@ async def upload_photos(
         )
         new_paths.append(original_path)
 
-        # Watermark des 3 premières photos (si pas encore atteint)
-        if len(teasers) < 3:
-            try:
-                wm_bytes = watermark_svc.watermark_image(content)
-                wm_path = storage_svc.save(
-                    content=wm_bytes,
-                    filename=f"teaser_{len(teasers)}_{f.filename or 'cover.jpg'}",
-                    kind=storage_svc.KIND_DEALS,
-                    subfolder=f"deals/{deal_id}",
-                    content_type="image/jpeg",
-                )
-                teasers.append(wm_path)
-                if not deal.teaser_photo_path:
-                    deal.teaser_photo_path = wm_path  # backward compat single
-            except Exception:
-                pass
-
     deal.photo_paths = existing + new_paths
-    deal.teaser_photo_paths = teasers
+    # Le watermark est maintenant généré uniquement par PATCH /teaser-selection.
     await db.flush()
     return {
-        "photo_paths": deal.photo_paths,
-        "teaser_photo_path": deal.teaser_photo_path,
-        "teaser_photo_paths": deal.teaser_photo_paths,
+        "photo_paths": deal.photo_paths,  # paths bruts : utilisés ensuite par PATCH /teaser-selection
+        "teaser_photo_paths": storage_svc.to_public_urls(deal.teaser_photo_paths),
+    }
+
+
+@router.patch("/deals/{deal_id}/teaser-selection")
+async def set_teaser_selection(
+    deal_id: uuid.UUID,
+    payload: TeaserSelection,
+    current_user: User = Depends(require_courtier),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sélection cover + 0-2 secondaires. Génère les watermarks publics.
+
+    Remplace intégralement la sélection teaser précédente : les anciens
+    watermarks sont supprimés du storage et la liste teaser_photo_paths
+    est réécrite dans l'ordre [cover, sec1, sec2].
+    """
+    result = await db.execute(
+        select(Deal).where(Deal.id == deal_id, Deal.courtier_id == current_user.id)
+    )
+    deal = result.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    photo_paths = list(deal.photo_paths or [])
+    if not photo_paths:
+        raise HTTPException(status_code=400, detail="Aucune photo uploadée pour ce deal")
+
+    if payload.cover_original not in photo_paths:
+        raise HTTPException(status_code=400, detail="Photo de couverture introuvable dans ce deal")
+    if len(payload.secondary_originals) > 2:
+        raise HTTPException(status_code=400, detail="Maximum 2 photos secondaires")
+    for sp in payload.secondary_originals:
+        if sp not in photo_paths:
+            raise HTTPException(status_code=400, detail=f"Photo secondaire introuvable : {sp}")
+    if payload.cover_original in payload.secondary_originals:
+        raise HTTPException(status_code=400, detail="La couverture ne peut pas aussi être secondaire")
+    if len(set(payload.secondary_originals)) != len(payload.secondary_originals):
+        raise HTTPException(status_code=400, detail="Photos secondaires en double")
+
+    # Supprime les anciens watermarks (orphelins après cette opération)
+    for old_wm in (deal.teaser_photo_paths or []):
+        try:
+            storage_svc.delete(old_wm)
+        except Exception:
+            pass
+
+    # Génère les nouveaux watermarks dans l'ordre [cover, sec1, sec2]
+    selected = [payload.cover_original] + list(payload.secondary_originals)
+    new_teasers: list[str] = []
+    for i, original in enumerate(selected):
+        try:
+            content = storage_svc.read(original)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Lecture impossible de l'original {original}: {e}",
+            )
+        try:
+            wm_bytes = watermark_svc.watermark_image(content)
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Génération watermark échouée: {e}",
+            )
+        wm_path = storage_svc.save(
+            content=wm_bytes,
+            filename=f"teaser_{i}.jpg",
+            kind=storage_svc.KIND_DEALS,
+            subfolder=f"deals/{deal_id}",
+            content_type="image/jpeg",
+        )
+        new_teasers.append(wm_path)
+
+    deal.teaser_photo_paths = new_teasers
+    deal.teaser_photo_path = new_teasers[0]  # backward compat
+    await db.flush()
+    return {
+        "teaser_photo_paths": storage_svc.to_public_urls(deal.teaser_photo_paths),
+        "teaser_photo_path": storage_svc.to_public_url(deal.teaser_photo_path),
     }
 
 
@@ -301,8 +356,30 @@ async def delete_photo(
         raise HTTPException(status_code=404, detail="Photo introuvable")
     photos.remove(path)
     deal.photo_paths = photos
+
+    # La sélection teaser dépendait peut-être de cette photo : on l'invalide
+    # entièrement, force le courtier à re-sélectionner via PATCH /teaser-selection.
+    old_teasers = list(deal.teaser_photo_paths or [])
+    if old_teasers:
+        for old_wm in old_teasers:
+            try:
+                storage_svc.delete(old_wm)
+            except Exception:
+                pass
+        deal.teaser_photo_paths = None
+        deal.teaser_photo_path = None
+
+    # Supprime aussi le fichier original du storage (auparavant orphelin)
+    try:
+        storage_svc.delete(path)
+    except Exception:
+        pass
+
     await db.flush()
-    return {"photo_paths": photos}
+    return {
+        "photo_paths": photos,  # paths bruts : utilisés par PATCH /teaser-selection après ré-upload
+        "teaser_photo_paths": storage_svc.to_public_urls(deal.teaser_photo_paths),
+    }
 
 
 @router.post("/deals/{deal_id}/pa")
@@ -388,7 +465,7 @@ async def upload_inspection_report(
     path = save_uploaded_file(content, file.filename, f"deals/{deal_id}/inspection")
     deal.inspection_report_path = path
     await db.flush()
-    return {"inspection_report_path": path}
+    return {"inspection_report_path": storage_svc.to_signed_url(path)}
 
 
 # ── Logements (units) ────────────────────────────────────────────────────────
@@ -489,7 +566,7 @@ async def upload_unit_photos(
         existing.append(path)
     unit.photo_paths = existing
     await db.flush()
-    return {"photo_paths": existing}
+    return {"photo_paths": storage_svc.to_signed_urls(existing)}
 
 
 @router.post("/deals/{deal_id}/units/{unit_id}/lease")
@@ -511,7 +588,7 @@ async def upload_unit_lease(
     path = save_uploaded_file(content, file.filename, f"deals/{deal_id}/units/{unit_id}/lease")
     unit.lease_path = path
     await db.flush()
-    return {"lease_path": path}
+    return {"lease_path": storage_svc.to_signed_url(path)}
 
 
 # ── FAQ : courtier répond aux questions ──────────────────────────────────────

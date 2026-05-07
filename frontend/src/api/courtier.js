@@ -23,6 +23,9 @@ export const uploadDealPhotosApi = (dealId, files) => {
 export const deleteDealPhotoApi = (dealId, path) =>
   client.delete(`/courtier/deals/${dealId}/photos`, { params: { path } }).then(r => r.data)
 
+export const setTeaserSelectionApi = (dealId, payload) =>
+  client.patch(`/courtier/deals/${dealId}/teaser-selection`, payload).then(r => r.data)
+
 export const patchDealApi = (dealId, payload) =>
   client.patch(`/courtier/deals/${dealId}`, payload).then(r => r.data)
 

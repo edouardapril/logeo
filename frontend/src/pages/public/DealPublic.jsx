@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { fileUrl } from '../../utils/url'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import { regionLabel, mrcLabel } from '../../utils/quebec'
+import DealPhotoSlideshow from '../../components/deal/DealPhotoSlideshow'
 
 const formatMoney = (n) =>
   n == null ? '—' : new Intl.NumberFormat('fr-CA', {
@@ -242,17 +243,18 @@ export default function DealPublic() {
             )}
           </div>
 
-          {/* Photo teaser watermarquée */}
-          {deal.teaser_photo_path && (
+          {/* Slideshow teaser watermarqué (1 à 3 photos) */}
+          {(deal.teaser_photo_paths?.length > 0 || deal.teaser_photo_path) && (
             <div className="card overflow-hidden">
-              <img
-                src={fileUrl(deal.teaser_photo_path)}
+              <DealPhotoSlideshow
+                photos={deal.teaser_photo_paths?.length
+                  ? deal.teaser_photo_paths
+                  : [deal.teaser_photo_path]}
+                height="h-64 md:h-80"
                 alt={deal.city}
-                className="w-full h-64 md:h-80 object-cover"
-                loading="lazy"
               />
               <p className="px-5 py-3 text-xs text-gray-500 border-t border-gray-100">
-                Photo de façade · les autres photos sont accessibles après signature du NDA.
+                Aperçu watermarqué · photos haute résolution accessibles après signature du NDA.
               </p>
             </div>
           )}

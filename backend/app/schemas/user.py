@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, field_serializer
 from app.models.user import UserRole
+from app.services import storage as storage_svc
 
 
 import re
@@ -86,6 +87,10 @@ class UserPublic(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer('profile_photo_path')
+    def _ser_profile_photo_path(self, v):
+        return storage_svc.to_signed_url(v)
 
 
 class UserAdminView(UserPublic):
