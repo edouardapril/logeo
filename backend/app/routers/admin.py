@@ -95,7 +95,79 @@ async def list_deals(
     if status:
         query = query.where(Deal.status == status)
     result = await db.execute(query.order_by(Deal.created_at.desc()))
-    return result.scalars().all()
+    deals = result.scalars().all()
+    status_filter = status.value if status else "ALL"
+    print(f"[ADMIN_LIST_DEALS] (basic) filter status={status_filter} → {len(deals)} deal(s)", flush=True)
+    return deals
+
+
+# ── Liste enrichie : DOIT précéder /deals/{deal_id} sinon "enriched"
+# ── est capturé comme deal_id et le parsing UUID échoue (422).
+@router.get("/deals/enriched", response_model=list[DealAdminListItem])
+async def list_deals_enriched(
+    status: DealStatus | None = None,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Liste deals + compteurs (bids, NDAs, FAQ sans réponse)."""
+    q = select(Deal)
+    if status:
+        q = q.where(Deal.status == status)
+    q = q.order_by(Deal.created_at.desc())
+    deals = (await db.execute(q)).scalars().all()
+
+    # Log de diagnostic — montre le filtre appliqué et le nombre de deals retournés
+    status_filter = status.value if status else "ALL"
+    print(
+        f"[ADMIN_LIST_DEALS] filter status={status_filter} → "
+        f"{len(deals)} deal(s) retourné(s)",
+        flush=True,
+    )
+
+    if not deals:
+        return []
+
+    deal_ids = [d.id for d in deals]
+
+    bids_count_map: dict[uuid.UUID, int] = {}
+    bcr = await db.execute(
+        select(Bid.deal_id, func.count(Bid.id))
+        .where(Bid.deal_id.in_(deal_ids))
+        .group_by(Bid.deal_id)
+    )
+    for did, c in bcr.all():
+        bids_count_map[did] = int(c)
+
+    ndas_count_map: dict[uuid.UUID, int] = {}
+    ncr = await db.execute(
+        select(NDA.deal_id, func.count(NDA.id))
+        .where(NDA.deal_id.in_(deal_ids))
+        .group_by(NDA.deal_id)
+    )
+    for did, c in ncr.all():
+        ndas_count_map[did] = int(c)
+
+    unanswered_map: dict[uuid.UUID, int] = {}
+    qcr = await db.execute(
+        select(DealQuestion.deal_id, func.count(DealQuestion.id))
+        .where(DealQuestion.deal_id.in_(deal_ids), DealQuestion.answer.is_(None))
+        .group_by(DealQuestion.deal_id)
+    )
+    for did, c in qcr.all():
+        unanswered_map[did] = int(c)
+
+    out = []
+    for d in deals:
+        out.append(DealAdminListItem(
+            id=d.id, status=d.status.value if hasattr(d.status, "value") else str(d.status),
+            property_type=d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
+            city=d.city, asking_price=d.asking_price, floor_price=d.floor_price,
+            bid_close_at=d.bid_close_at, created_at=d.created_at,
+            bids_count=bids_count_map.get(d.id, 0),
+            ndas_count=ndas_count_map.get(d.id, 0),
+            unanswered_questions_count=unanswered_map.get(d.id, 0),
+        ))
+    return out
 
 
 @router.get("/deals/{deal_id}", response_model=DealAdminView)
@@ -482,65 +554,7 @@ async def dashboard_metrics(
     )
 
 
-# ── Enriched deals list + extend timer ───────────────────────────────────────
-
-@router.get("/deals/enriched", response_model=list[DealAdminListItem])
-async def list_deals_enriched(
-    status: DealStatus | None = None,
-    current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Liste deals + compteurs (bids, NDAs, FAQ sans réponse)."""
-    q = select(Deal)
-    if status:
-        q = q.where(Deal.status == status)
-    q = q.order_by(Deal.created_at.desc())
-    deals = (await db.execute(q)).scalars().all()
-    if not deals:
-        return []
-
-    deal_ids = [d.id for d in deals]
-
-    bids_count_map: dict[uuid.UUID, int] = {}
-    bcr = await db.execute(
-        select(Bid.deal_id, func.count(Bid.id))
-        .where(Bid.deal_id.in_(deal_ids))
-        .group_by(Bid.deal_id)
-    )
-    for did, c in bcr.all():
-        bids_count_map[did] = int(c)
-
-    ndas_count_map: dict[uuid.UUID, int] = {}
-    ncr = await db.execute(
-        select(NDA.deal_id, func.count(NDA.id))
-        .where(NDA.deal_id.in_(deal_ids))
-        .group_by(NDA.deal_id)
-    )
-    for did, c in ncr.all():
-        ndas_count_map[did] = int(c)
-
-    unanswered_map: dict[uuid.UUID, int] = {}
-    qcr = await db.execute(
-        select(DealQuestion.deal_id, func.count(DealQuestion.id))
-        .where(DealQuestion.deal_id.in_(deal_ids), DealQuestion.answer.is_(None))
-        .group_by(DealQuestion.deal_id)
-    )
-    for did, c in qcr.all():
-        unanswered_map[did] = int(c)
-
-    out = []
-    for d in deals:
-        out.append(DealAdminListItem(
-            id=d.id, status=d.status.value if hasattr(d.status, "value") else str(d.status),
-            property_type=d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
-            city=d.city, asking_price=d.asking_price, floor_price=d.floor_price,
-            bid_close_at=d.bid_close_at, created_at=d.created_at,
-            bids_count=bids_count_map.get(d.id, 0),
-            ndas_count=ndas_count_map.get(d.id, 0),
-            unanswered_questions_count=unanswered_map.get(d.id, 0),
-        ))
-    return out
-
+# ── Extend timer ─────────────────────────────────────────────────────────────
 
 @router.post("/deals/{deal_id}/extend-bid-close")
 async def extend_bid_close(
