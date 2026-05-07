@@ -13,6 +13,7 @@ import Modal from '../../components/ui/Modal'
 import Input, { Textarea } from '../../components/ui/Input'
 import Timer from '../../components/ui/Timer'
 import { fileUrl } from '../../utils/url'
+import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
@@ -104,7 +105,9 @@ export default function AdminDealDetail() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold text-gray-900">{deal.city} · {deal.property_type}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
+            </h1>
             <Badge status={deal.status} />
           </div>
           <p className="text-sm text-gray-600">ID : {deal.id}</p>

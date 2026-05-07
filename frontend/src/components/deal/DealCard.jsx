@@ -15,8 +15,13 @@ export default function DealCard({ deal, to }) {
   // Pre-NDA on n'expose que `teaser_photo_path` (watermarqué public).
   // Si on a accès à `photo_paths` (post-NDA), on prend la première photo HD.
   const cover = deal.teaser_photo_path || deal.photo_paths?.[0]
-  const isLand = deal.property_type === 'terrain' || deal.property_type === 'terrain_constructible'
-  const isCommercial = deal.property_type === 'commercial'
+  // Post-refonte : 'terrain_constructible' est mappé vers 'terrain' en DB (filet legacy)
+  const isLand = deal.property_type === 'terrain'
+              || deal.property_type === 'terrain_constructible'
+  // Post-refonte : 'commercial' / 'mixte' / 'industriel' (legacy) sont fusionnés
+  // dans 'autre' — on garde l'icône Building2 pour cette catégorie hétérogène.
+  const isOther = deal.property_type === 'autre'
+               || ['commercial', 'mixte', 'industriel'].includes(deal.property_type)
 
   return (
     <Link
@@ -37,7 +42,7 @@ export default function DealCard({ deal, to }) {
         <div className="flex items-center gap-2 min-w-0">
           <div className="h-10 w-10 rounded-lg bg-[#FFEDD5] text-[#EA580C] flex items-center justify-center flex-shrink-0">
             {isLand ? <MapPin className="h-5 w-5" /> :
-             isCommercial ? <Building2 className="h-5 w-5" /> :
+             isOther ? <Building2 className="h-5 w-5" /> :
              <Home className="h-5 w-5" />}
           </div>
           <div className="min-w-0">

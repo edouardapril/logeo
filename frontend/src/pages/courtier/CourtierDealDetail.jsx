@@ -12,6 +12,7 @@ import {
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Timer from '../../components/ui/Timer'
+import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import { Textarea } from '../../components/ui/Input'
 import ReviewSection from '../../components/deal/ReviewSection'
 import { useAuth } from '../../contexts/AuthContext'
@@ -89,7 +90,9 @@ export default function CourtierDealDetail() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold text-gray-900">{deal.city} · {deal.property_type}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
+            </h1>
             <Badge status={deal.status} />
           </div>
           <p className="text-sm text-gray-600">Soumis le {new Date(deal.created_at).toLocaleDateString('fr-CA')}</p>

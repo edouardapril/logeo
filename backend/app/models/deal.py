@@ -18,18 +18,17 @@ class DealStatus(str, enum.Enum):
 
 
 class PropertyType(str, enum.Enum):
-    # Anciennes valeurs (conservées pour compat données existantes)
-    multiplex = "multiplex"
-    commercial = "commercial"
-    mixte = "mixte"
-    industriel = "industriel"
+    """Catégories canoniques (refonte phase 1 — voir migration a1b2c3d4e5f6).
+
+    La validation des entrées API repose sur cet enum (Pydantic) ; le stockage
+    DB est désormais VARCHAR(50) + CHECK constraint, plus flexible.
+    """
     terrain = "terrain"
-    # Nouvelles valeurs (sprint A)
-    multilogement_2_6 = "multilogement_2_6"
-    multilogement_7_24 = "multilogement_7_24"
-    projet_24_plus = "projet_24_plus"
-    terrain_constructible = "terrain_constructible"
-    residentiel_plex = "residentiel_plex"
+    residentiel = "residentiel"
+    petit_plex = "petit_plex"
+    multilogement_6_24 = "multilogement_6_24"
+    multilogement_24_plus = "multilogement_24_plus"
+    autre = "autre"
 
 
 class Deal(Base):
@@ -39,7 +38,7 @@ class Deal(Base):
     courtier_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     status: Mapped[DealStatus] = mapped_column(SAEnum(DealStatus), default=DealStatus.draft)
-    property_type: Mapped[PropertyType] = mapped_column(SAEnum(PropertyType), nullable=False)
+    property_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
     city: Mapped[str] = mapped_column(String(100), nullable=False)
     region: Mapped[str | None] = mapped_column(String(80))   # Région administrative QC

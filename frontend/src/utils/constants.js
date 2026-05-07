@@ -1,23 +1,34 @@
+// Refonte phase 1 — 6 catégories canoniques (cf. migration a1b2c3d4e5f6).
+// Ordre du dropdown imposé par produit.
 export const PROPERTY_TYPES = [
-  { value: 'multilogement_2_6', label: 'Multilogement 2-6 logements' },
-  { value: 'multilogement_7_24', label: 'Multilogement 7-24 logements' },
-  { value: 'projet_24_plus', label: 'Projet 24+ logements' },
-  { value: 'terrain_constructible', label: 'Terrain constructible' },
-  { value: 'residentiel_plex', label: 'Résidentiel pour ériger un plex' },
+  { value: 'terrain',                label: 'Terrain' },
+  { value: 'residentiel',            label: 'Résidentiel' },
+  { value: 'petit_plex',             label: 'Petit Plex (2-5 logements)' },
+  { value: 'multilogement_6_24',     label: 'Multilogement (6-24 logements)' },
+  { value: 'multilogement_24_plus',  label: 'Multilogement (24+ logements)' },
+  { value: 'autre',                  label: 'Autre' },
 ]
 
-// Inclus aussi les anciennes valeurs pour rester lisible sur les deals legacy
+// Labels d'affichage : 6 canoniques + 9 legacy (fallback défensif si une donnée
+// non migrée passe à travers — la migration normalise tout, mais on garde un filet).
 export const PROPERTY_TYPE_LABELS = {
-  multilogement_2_6: 'Multilogement 2-6',
-  multilogement_7_24: 'Multilogement 7-24',
-  projet_24_plus: 'Projet 24+',
-  terrain_constructible: 'Terrain constructible',
-  residentiel_plex: 'Résidentiel à plex',
-  multiplex: 'Multiplex',
-  commercial: 'Commercial',
-  mixte: 'Mixte',
-  industriel: 'Industriel',
-  terrain: 'Terrain',
+  // Canoniques (post-refonte)
+  terrain:                'Terrain',
+  residentiel:            'Résidentiel',
+  petit_plex:             'Petit Plex (2-5 logements)',
+  multilogement_6_24:     'Multilogement (6-24 logements)',
+  multilogement_24_plus:  'Multilogement (24+ logements)',
+  autre:                  'Autre',
+  // Legacy — ne devraient plus apparaître après migration, mais affichage gracieux si oui
+  multilogement_2_6:      'Multilogement 2-6 (legacy)',
+  multilogement_7_24:     'Multilogement 7-24 (legacy)',
+  projet_24_plus:         'Projet 24+ (legacy)',
+  terrain_constructible:  'Terrain constructible (legacy)',
+  residentiel_plex:       'Résidentiel à plex (legacy)',
+  multiplex:              'Multiplex (legacy)',
+  commercial:             'Commercial (legacy)',
+  mixte:                  'Mixte (legacy)',
+  industriel:             'Industriel (legacy)',
 }
 
 export const REGIONS = [

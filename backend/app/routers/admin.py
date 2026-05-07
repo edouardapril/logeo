@@ -224,7 +224,8 @@ async def verdict(
 
         schedule_auction_close(deal_id, close_at, AsyncSessionLocal)
         await email_service.send_verdict_go(db, courtier, deal_id)
-        await email_service.send_nouveau_deal(db, deal_id, deal.city, deal.property_type.value)
+        # Post-refonte : property_type est un str (VARCHAR) — plus besoin de .value
+        await email_service.send_nouveau_deal(db, deal_id, deal.city, str(deal.property_type))
 
     elif payload.verdict == "nogo":
         if not payload.nogo_reason:
