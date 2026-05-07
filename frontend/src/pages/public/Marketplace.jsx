@@ -1,83 +1,32 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, MapPin, Users, Lock, ArrowRight } from 'lucide-react'
+import { Building2, ArrowRight, SlidersHorizontal, ArrowUpDown } from 'lucide-react'
 import { publicMarketplaceApi } from '../../api/public'
 import Spinner from '../../components/ui/Spinner'
-import CountdownBoxes from '../../components/ui/CountdownBoxes'
 import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
-import { fileUrl } from '../../utils/url'
-import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
-import { regionLabel, mrcLabel } from '../../utils/quebec'
+import PublicDealCard from '../../components/deal/PublicDealCard'
+import { Select } from '../../components/ui/Input'
+import { PROPERTY_TYPES } from '../../utils/constants'
 
 const formatMoney = (n) =>
   n == null ? '—' : new Intl.NumberFormat('fr-CA', {
     style: 'currency', currency: 'CAD', minimumFractionDigits: 0,
   }).format(n)
 
-function PublicDealCard({ d }) {
-  return (
-    <div className="card overflow-hidden hover:shadow-md hover:border-[#FDBA74] transition-all duration-200 group">
-      {d.teaser_photo_path && (
-        <div className="h-44 overflow-hidden bg-gray-100 relative">
-          <img
-            src={fileUrl(d.teaser_photo_path)}
-            alt={d.city}
-            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
-          />
-        </div>
-      )}
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3 gap-2">
-          <div>
-            <p className="text-xs text-gray-500">
-              {PROPERTY_TYPE_LABELS[d.property_type] || d.property_type}
-              {d.num_units ? ` · ${d.num_units} log.` : ''}
-            </p>
-            <p className="font-semibold text-gray-900 flex items-center gap-1.5">
-              <MapPin className="h-3.5 w-3.5 text-gray-400" />
-              {d.city}
-              {d.region && <span className="text-xs text-gray-400 font-normal">· {regionLabel(d.region)}</span>}
-            </p>
-          </div>
-          <CountdownBoxes closeAt={d.bid_close_at} size="compact" />
-        </div>
-
-        <dl className="grid grid-cols-2 gap-3 text-sm mb-4">
-          {d.floor_price != null && (
-            <div>
-              <dt className="text-xs text-gray-500">Prix plancher</dt>
-              <dd className="font-semibold text-gray-700">{formatMoney(d.floor_price)}</dd>
-            </div>
-          )}
-          {d.displayed_price != null && (
-            <div>
-              <dt className="text-xs text-gray-500">Prix affiché</dt>
-              <dd className="font-bold text-[#9A3412]">{formatMoney(d.displayed_price)}</dd>
-            </div>
-          )}
-        </dl>
-
-        <div className="flex items-center justify-between text-xs text-gray-500">
-          <span className="inline-flex items-center gap-1">
-            <Users className="h-3 w-3" /> {d.bidders_count} {d.bidders_count > 1 ? 'acheteurs' : 'acheteur'}
-          </span>
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-1 link-brand font-medium"
-            title="Connectez-vous pour signer le NDA et accéder au dossier complet"
-          >
-            <Lock className="h-3 w-3" /> Voir le dossier
-          </Link>
-        </div>
-      </div>
-    </div>
-  )
-}
+const SORTS = [
+  { value: 'recent',     label: 'Plus récent' },
+  { value: 'floor_asc',  label: 'Prix plancher croissant' },
+  { value: 'floor_desc', label: 'Prix plancher décroissant' },
+  { value: 'timer_asc',  label: 'Timer croissant (ferme bientôt)' },
+]
 
 export default function Marketplace() {
   const [filters, setFilters] = useState({ region: '', mrc: '', city: '' })
+  const [floorMin, setFloorMin] = useState('')
+  const [floorMax, setFloorMax] = useState('')
+  const [propertyType, setPropertyType] = useState('')
+  const [sort, setSort] = useState('recent')
 
   const { data: deals, isLoading } = useQuery({
     queryKey: ['marketplace', filters.region, filters.mrc, filters.city],
@@ -89,6 +38,40 @@ export default function Marketplace() {
     refetchInterval: 30_000,
   })
 
+  // Bornes prix dynamiques (pour les sliders)
+  const priceRange = useMemo(() => {
+    if (!deals?.length) return { min: 0, max: 5_000_000 }
+    const prices = deals.map(d => d.floor_price).filter(p => p != null)
+    if (!prices.length) return { min: 0, max: 5_000_000 }
+    return { min: Math.min(...prices), max: Math.max(...prices) }
+  }, [deals])
+
+  const filtered = useMemo(() => {
+    if (!deals) return []
+    let out = deals
+    if (propertyType) out = out.filter(d => d.property_type === propertyType)
+    const fMin = floorMin === '' ? null : Number(floorMin)
+    const fMax = floorMax === '' ? null : Number(floorMax)
+    if (fMin != null) out = out.filter(d => (d.floor_price ?? 0) >= fMin)
+    if (fMax != null) out = out.filter(d => (d.floor_price ?? Infinity) <= fMax)
+
+    const sorted = [...out]
+    switch (sort) {
+      case 'floor_asc':
+        sorted.sort((a, b) => (a.floor_price ?? Infinity) - (b.floor_price ?? Infinity)); break
+      case 'floor_desc':
+        sorted.sort((a, b) => (b.floor_price ?? -Infinity) - (a.floor_price ?? -Infinity)); break
+      case 'timer_asc':
+        sorted.sort((a, b) => new Date(a.bid_close_at || 0) - new Date(b.bid_close_at || 0)); break
+      case 'recent':
+      default:
+        sorted.sort((a, b) => new Date(b.bid_open_at || 0) - new Date(a.bid_open_at || 0)); break
+    }
+    return sorted
+  }, [deals, propertyType, floorMin, floorMax, sort])
+
+  const hasFilter = filters.region || filters.mrc || filters.city || propertyType || floorMin || floorMax
+
   return (
     <div>
       <div className="mb-6">
@@ -99,26 +82,78 @@ export default function Marketplace() {
         </p>
       </div>
 
-      {/* Filtres MRC/villes */}
-      <div className="card p-5 mb-6">
-        <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-3">Filtrer</p>
-        <QuebecLocationPicker
-          value={filters}
-          onChange={setFilters}
-        />
-        {(filters.region || filters.mrc || filters.city) && (
+      {/* Filtres + tri */}
+      <div className="card p-5 mb-6 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold flex items-center gap-1.5">
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Filtrer
+          </p>
+          <div className="flex items-center gap-2">
+            <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-2 py-1"
+            >
+              {SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <QuebecLocationPicker value={filters} onChange={setFilters} />
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Select
+            label="Type de propriété"
+            value={propertyType}
+            onChange={(e) => setPropertyType(e.target.value)}
+            options={[
+              { value: '', label: 'Tous les types' },
+              ...PROPERTY_TYPES,
+            ]}
+          />
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700">
+              Prix plancher min
+            </label>
+            <input
+              type="number" min={priceRange.min} step="50000"
+              value={floorMin}
+              onChange={(e) => setFloorMin(e.target.value)}
+              placeholder={priceRange.min ? formatMoney(priceRange.min) : '0 $'}
+              className="input-base"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-gray-700">
+              Prix plancher max
+            </label>
+            <input
+              type="number" min="0" step="50000"
+              value={floorMax}
+              onChange={(e) => setFloorMax(e.target.value)}
+              placeholder={priceRange.max ? formatMoney(priceRange.max) : 'illimité'}
+              className="input-base"
+            />
+          </div>
+        </div>
+
+        {hasFilter && (
           <button
-            onClick={() => setFilters({ region: '', mrc: '', city: '' })}
-            className="mt-3 text-xs link-brand font-medium"
+            onClick={() => {
+              setFilters({ region: '', mrc: '', city: '' })
+              setPropertyType(''); setFloorMin(''); setFloorMax('')
+            }}
+            className="text-xs link-brand font-medium"
           >
-            ↺ Réinitialiser les filtres
+            ↺ Réinitialiser tous les filtres
           </button>
         )}
       </div>
 
       {isLoading ? (
         <Spinner label="Chargement des enchères..." />
-      ) : !deals?.length ? (
+      ) : !filtered.length ? (
         <div className="card p-12 text-center">
           <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
           <h3 className="font-semibold text-gray-900 mb-1">Aucune enchère pour ces critères</h3>
@@ -129,9 +164,16 @@ export default function Marketplace() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {deals.map(d => <PublicDealCard key={d.id} d={d} />)}
-        </div>
+        <>
+          <p className="text-xs text-gray-500 mb-3">
+            {filtered.length} enchère{filtered.length > 1 ? 's' : ''} affichée{filtered.length > 1 ? 's' : ''}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filtered.map(d => (
+              <PublicDealCard key={d.id} deal={d} detailHref={`/deals/${d.id}`} />
+            ))}
+          </div>
+        </>
       )}
 
       <div className="mt-12 card p-6 bg-[#FFEDD5] border-[#FDBA74] text-center">

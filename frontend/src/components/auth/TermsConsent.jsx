@@ -54,7 +54,7 @@ const TOS_TEXT = `LOGEO — CONDITIONS GÉNÉRALES D'UTILISATION (résumé)
 
 
 /**
- * Bloc T&C utilisé sur les pages d'inscription (acheteur/courtier).
+ * Bloc Conditions d'utilisation utilisé sur les pages d'inscription (acheteur/courtier).
  * Affiche un résumé scrollable + 3 ou 4 cases obligatoires.
  *
  * Props:

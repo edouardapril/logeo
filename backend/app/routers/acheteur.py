@@ -195,6 +195,7 @@ async def get_deal_full(
         "courtier_email": courtier.email,
         "courtier_phone": courtier.phone,
         "agency_name": courtier.agency_name,
+        "courtier_oaciq_number": courtier.oaciq_number,
     }
 
 
@@ -892,3 +893,71 @@ async def my_auctions(
         })
 
     return out
+
+
+# ── Onboarding status (sprint UX item 2) ─────────────────────────────────────
+
+@router.get("/onboarding-status")
+async def onboarding_status(
+    deal_id: uuid.UUID | None = None,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retourne les étapes du parcours acheteur, avec done/current/pending.
+    Si deal_id est fourni, ajoute les étapes per-deal (NDA + engagement).
+
+    Format :
+      {
+        steps: [{key, label, done, helper?}, ...],
+        current_step_index: int,
+        ready_to_bid: bool,
+        blocking_message: str | None,
+      }
+    """
+    has_card = bool(current_user.stripe_payment_method_id)
+    has_engagement = current_user.engagement_signed_at is not None
+
+    has_signed_nda = False
+    if deal_id:
+        has_signed_nda = await _has_signed_nda(deal_id, current_user.id, db)
+
+    # Étapes globales
+    steps = [
+        {"key": "register", "label": "Inscription", "done": True,
+         "helper": "Compte Logeo créé"},
+        {"key": "verify_email", "label": "Email confirmé", "done": current_user.email_verified,
+         "helper": "Cliquez le lien dans l'email reçu" if not current_user.email_verified else None},
+        {"key": "qualified", "label": "Approuvé par admin", "done": current_user.is_qualified,
+         "helper": "L'équipe Logeo qualifie votre profil sous 24 h" if not current_user.is_qualified else None},
+        {"key": "has_card", "label": "Carte enregistrée", "done": has_card,
+         "helper": "Ajoutez une carte sur l'onglet Paiement" if not has_card else None},
+    ]
+    # Étapes per-deal seulement si deal_id donné
+    if deal_id:
+        steps.append({
+            "key": "nda_signed", "label": "NDA signé", "done": has_signed_nda,
+            "helper": "Signez le NDA depuis la page du deal" if not has_signed_nda else None,
+        })
+        steps.append({
+            "key": "engagement_signed", "label": "Engagement signé", "done": has_engagement,
+            "helper": "Engagement frais Logeo (1 fois)" if not has_engagement else None,
+        })
+
+    # Étape courante = première non-done
+    current_step_index = next(
+        (i for i, s in enumerate(steps) if not s["done"]), len(steps),
+    )
+    ready_to_bid = current_step_index >= len(steps)
+    blocking_message = (
+        f"Étape {current_step_index + 1}/{len(steps)} : "
+        f"{steps[current_step_index]['label']}"
+        if not ready_to_bid else None
+    )
+
+    return {
+        "steps": steps,
+        "current_step_index": current_step_index,
+        "ready_to_bid": ready_to_bid,
+        "blocking_message": blocking_message,
+    }

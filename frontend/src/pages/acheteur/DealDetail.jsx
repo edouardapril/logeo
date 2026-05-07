@@ -33,6 +33,7 @@ import { listReviewsForDealApi } from '../../api/reviews'
 import { fileUrl } from '../../utils/url'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import useAuctionLive, { browserNotify } from '../../hooks/useAuctionLive'
+import OnboardingProgress from '../../components/acheteur/OnboardingProgress'
 
 const formatMoney = (n) =>
   n == null ? '—' : new Intl.NumberFormat('fr-CA', {
@@ -232,38 +233,94 @@ export default function DealDetail() {
     : null
 
   return (
-    <div>
+    <div className="pb-24 md:pb-0">  {/* padding-bottom mobile pour le sticky CTA */}
       <Link to="/acheteur/deals" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Retour aux deals
       </Link>
 
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold text-gray-900 capitalize">
-              {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
-            </h1>
-            <Badge status={deal.status} />
+      {/* Onboarding (sprint UX item 2) — masque automatiquement si l'utilisateur est prêt */}
+      <OnboardingProgress dealId={dealId} compact />
+
+      {/* ── HERO BLOCK (sprint UX item 3) — toujours en haut, mobile-first ── */}
+      <div className="card p-5 md:p-6 mb-6 bg-gradient-to-br from-white via-white to-[#FFEDD5]/40 border-[#FDBA74]">
+        <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl md:text-2xl font-bold text-gray-900 capitalize">
+                {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
+              </h1>
+              <Badge status={deal.status} />
+            </div>
+            {hasSignedNda && deal.address_private && (
+              <p className="text-sm text-gray-700 flex items-center gap-1.5 mt-1">
+                <MapPin className="h-4 w-4 text-red-500 flex-shrink-0" />
+                <span className="truncate">{deal.address_private}</span>
+              </p>
+            )}
           </div>
-          {hasSignedNda && deal.address_private && (
-            <p className="text-sm text-gray-700 flex items-center gap-1.5 mt-1">
-              <MapPin className="h-4 w-4 text-red-500" />
-              {deal.address_private}
-            </p>
+          {/* Status acheteur (visible si NDA signé et bid placé) */}
+          {hasSignedNda && live.iAmLeading === true && (
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 text-sm font-semibold animate-pulse">
+              🟢 Vous êtes en avance
+            </span>
+          )}
+          {hasSignedNda && live.iAmLeading === false && myBids?.length > 0 && (
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-50 text-red-700 ring-1 ring-inset ring-red-200 text-sm font-semibold">
+              🔴 Vous avez été dépassé
+            </span>
           )}
         </div>
 
-        {isAuctionOpen && (
-          <div className="card p-4">
-            <p className="text-xs text-gray-500 mb-2 text-center">Fin de l'enchère</p>
-            <CountdownBoxes
-              closeAt={live.liveCloseAt || deal.bid_close_at}
-              size="lg"
-              showLabel
-              extendedFlash={live.extendedFlash}
-            />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+          {/* Timer — gros, central */}
+          <div className="md:col-span-2 flex justify-center md:justify-start">
+            {isAuctionOpen ? (
+              <CountdownBoxes
+                closeAt={live.liveCloseAt || deal.bid_close_at}
+                size="lg"
+                showLabel
+                extendedFlash={live.extendedFlash}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm">Enchère non ouverte</p>
+            )}
           </div>
-        )}
+
+          {/* Prix + bidders + CTA */}
+          <div className="space-y-3">
+            {ranking?.displayed_price != null && (
+              <div className="text-center md:text-right">
+                <p className="text-xs uppercase tracking-wide text-gray-500">Prix actuel</p>
+                <p className="text-3xl font-bold text-[#9A3412]">
+                  <AnimatedNumber
+                    value={live.livePrice ?? ranking.displayed_price}
+                    format={formatMoney}
+                  />
+                </p>
+                <p className="text-xs text-gray-500">
+                  <AnimatedNumber value={live.liveBidders ?? ranking.bidders_count} />
+                  {' '}acheteur{(live.liveBidders ?? ranking.bidders_count) > 1 ? 's' : ''} en lice
+                </p>
+              </div>
+            )}
+            {isAuctionOpen && (
+              <a
+                href="#bid-form"
+                className="btn-primary w-full text-base py-3"
+                onClick={(e) => {
+                  // Smooth scroll vers le form (mobile pratique)
+                  const target = document.getElementById('bid-form')
+                  if (target) {
+                    e.preventDefault()
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                  }
+                }}
+              >
+                <Trophy className="h-5 w-5" /> Enchérir maintenant
+              </a>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Galerie photos */}
@@ -316,7 +373,7 @@ export default function DealDetail() {
               {capRate && (
                 <div>
                   <dt className="text-gray-500 text-xs flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3" /> Cap rate
+                    <TrendingUp className="h-3 w-3" /> TGA (cap rate)
                   </dt>
                   <dd className="font-semibold text-emerald-600">{capRate}%</dd>
                 </div>
@@ -386,21 +443,68 @@ export default function DealDetail() {
             )}
           </div>
 
-          {/* ── Verrou NDA ── */}
+          {/* ── Pré-NDA : sections bloquées avec flou + social proof ── */}
           {!hasSignedNda && (
-            <div className="card p-8 text-center bg-gradient-to-br from-[#FFEDD5] to-white border-[#FDBA74]">
-              <div className="h-12 w-12 mx-auto rounded-full bg-[#FED7AA] flex items-center justify-center mb-3">
-                <Lock className="h-6 w-6 text-[#EA580C]" />
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { icon: Building, title: 'Photos haute résolution',
+                    hint: 'Intérieur, extérieur, parties communes, par logement.' },
+                  { icon: MapPin, title: 'Adresse exacte',
+                    hint: 'Numéro civique, rue et secteur précis.' },
+                  { icon: FileText, title: 'Baux et déclaration vendeur',
+                    hint: 'Loyers détaillés par logement, statut occupation.' },
+                  { icon: User, title: 'Coordonnées du courtier',
+                    hint: 'Contact direct pour la due diligence.' },
+                ].map((b, i) => {
+                  const I = b.icon
+                  return (
+                    <div key={i} className="card p-4 relative overflow-hidden">
+                      <div
+                        aria-hidden="true"
+                        className="absolute inset-0 bg-gradient-to-br from-gray-100 via-gray-200 to-gray-100 opacity-60"
+                        style={{ filter: 'blur(8px)' }}
+                      />
+                      <div className="relative flex items-start gap-2.5">
+                        <div className="h-9 w-9 rounded-lg bg-white/80 ring-1 ring-gray-200 flex items-center justify-center flex-shrink-0">
+                          <Lock className="h-4 w-4 text-gray-500" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
+                            <I className="h-3.5 w-3.5 text-gray-400" />
+                            {b.title}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-0.5">{b.hint}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Dossier verrouillé</h3>
-              <p className="text-sm text-gray-600 mb-1 max-w-md mx-auto">
-                Signez le NDA pour découvrir l'<strong>adresse exacte</strong>, les <strong>logements</strong>,
-                les <strong>documents</strong>, la <strong>FAQ</strong> et participer à l'enchère.
-              </p>
-              <button onClick={() => setNdaModal(true)} className="btn-primary mt-4">
-                <ShieldCheck className="h-4 w-4" /> Signer le NDA
-              </button>
-            </div>
+
+              {/* CTA principal NDA + social proof */}
+              <div className="card p-8 text-center bg-gradient-to-br from-[#FFEDD5] to-white border-[#FDBA74]">
+                <div className="h-12 w-12 mx-auto rounded-full bg-[#FED7AA] flex items-center justify-center mb-3">
+                  <Lock className="h-6 w-6 text-[#EA580C]" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Dossier verrouillé</h3>
+                {ranking?.bidders_count != null && (
+                  <p className="font-semibold text-[#9A3412] mb-1">
+                    {ranking.bidders_count} {ranking.bidders_count > 1 ? 'investisseurs ont' : 'investisseur a'} déjà placé une offre.
+                  </p>
+                )}
+                <p className="text-sm text-gray-600 mb-1 max-w-md mx-auto">
+                  Signez le NDA pour découvrir l'<strong>adresse exacte</strong>, les <strong>logements</strong>,
+                  les <strong>documents</strong>, et participer à l'enchère.
+                </p>
+                <button onClick={() => setNdaModal(true)} className="btn-primary mt-4">
+                  <ShieldCheck className="h-4 w-4" /> Signer le NDA
+                </button>
+                <p className="text-[11px] text-gray-500 mt-2 italic">
+                  IP + horodatage enregistrés · PDF reçu par email
+                </p>
+              </div>
+            </>
           )}
 
           {/* ── Logements ── */}
@@ -556,6 +660,12 @@ export default function DealDetail() {
                   <p className="text-gray-500 text-xs flex items-center gap-1"><Phone className="h-3 w-3" /> Téléphone</p>
                   <p className="font-medium">{full.courtier_phone || '—'}</p>
                 </div>
+                {full.courtier_oaciq_number && (
+                  <div className="col-span-2">
+                    <p className="text-gray-500 text-xs">N° licence OACIQ</p>
+                    <p className="font-medium font-mono">{full.courtier_oaciq_number}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -668,7 +778,7 @@ export default function DealDetail() {
         {/* ── Sidebar ── */}
         <div className="space-y-4">
           {hasSignedNda && isAuctionOpen && (
-            <div className="card p-6 sticky top-6">
+            <div id="bid-form" className="card p-6 md:sticky md:top-6 scroll-mt-24">
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Trophy className="h-4 w-4 text-amber-500" /> Soumettre une offre
               </h2>
@@ -983,6 +1093,37 @@ export default function DealDetail() {
           </div>
         </div>
       </Modal>
+
+      {/* Sticky bottom CTA mobile (sprint UX item 1+3) */}
+      {isAuctionOpen && hasSignedNda && (
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 px-4 py-3 shadow-lg">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              {ranking?.displayed_price != null && (
+                <p className="text-xs text-gray-500 leading-tight">Prix actuel</p>
+              )}
+              <p className="font-bold text-[#9A3412] text-lg leading-tight">
+                {ranking?.displayed_price != null
+                  ? formatMoney(live.livePrice ?? ranking.displayed_price)
+                  : 'Enchère'}
+              </p>
+            </div>
+            <a
+              href="#bid-form"
+              onClick={(e) => {
+                const target = document.getElementById('bid-form')
+                if (target) {
+                  e.preventDefault()
+                  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
+              }}
+              className="btn-primary flex-shrink-0"
+            >
+              <Trophy className="h-4 w-4" /> Enchérir
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

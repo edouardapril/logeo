@@ -5,6 +5,7 @@ class ProfileUpdate(BaseModel):
     full_name: str | None = None
     phone: str | None = None
     email: EmailStr | None = None
+    oaciq_number: str | None = None  # courtier-only ; 8 chiffres
 
 
 class PasswordChange(BaseModel):

@@ -1,7 +1,9 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, LogOut, Plus, Search,
   CreditCard, Receipt, UserCircle, ShieldOff, Trophy, TrendingUp,
+  Menu, X,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Logo from '../ui/Logo'
@@ -39,7 +41,12 @@ const ROLE_LABEL = {
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const roleItems = NAV_BY_ROLE[user?.role] || []
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Ferme la sidebar mobile à chaque navigation
+  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
   const handleLogout = () => {
     logout()
@@ -54,14 +61,52 @@ export default function Layout() {
     }`
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
-      <aside className="w-64 bg-[#1A1A1A] text-white flex flex-col">
-        <div className="px-6 py-6 border-b border-white/10">
-          <Logo size="sm" className="text-white" />
-          <p className="mt-2 text-xs text-white/60">{ROLE_LABEL[user?.role]}</p>
+    <div className="min-h-screen md:flex bg-gray-50">
+      {/* Topbar mobile (caché >= md) */}
+      <header className="md:hidden sticky top-0 z-30 bg-[#1A1A1A] text-white px-4 py-3 flex items-center justify-between border-b border-white/10">
+        <Logo size="sm" className="text-white" />
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-2 rounded-lg text-white/80 hover:bg-white/10"
+          aria-label="Ouvrir le menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </header>
+
+      {/* Backdrop mobile */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="md:hidden fixed inset-0 z-40 bg-black/50"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar — off-canvas sur mobile, fixe sur desktop */}
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-50 w-72 md:w-64 bg-[#1A1A1A] text-white
+          flex flex-col transition-transform duration-200
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+        aria-hidden={!sidebarOpen}
+      >
+        <div className="px-6 py-6 border-b border-white/10 flex items-center justify-between">
+          <div>
+            <Logo size="sm" className="text-white" />
+            <p className="mt-2 text-xs text-white/60">{ROLE_LABEL[user?.role]}</p>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-2 rounded-lg text-white/70 hover:bg-white/10"
+            aria-label="Fermer le menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {roleItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -96,7 +141,7 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-8 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 md:py-8">
           <Outlet />
         </div>
       </main>

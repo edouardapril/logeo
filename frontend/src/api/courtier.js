@@ -67,3 +67,7 @@ export const answerQuestionApi = (dealId, questionId, answer) =>
 // Relance d'une nouvelle ronde (sprint final item 4)
 export const restartRoundApi = (dealId) =>
   client.post(`/courtier/deals/${dealId}/restart-round`).then(r => r.data)
+
+// Sprint UX item 5 — vision 360 par deal
+export const courtierListDealsEnrichedApi = () =>
+  client.get('/courtier/deals/enriched').then(r => r.data)

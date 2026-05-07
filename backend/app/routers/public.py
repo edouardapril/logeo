@@ -14,6 +14,8 @@ from app.models.user import User, UserRole
 from app.models.deal import Deal, DealStatus
 from app.models.bid import Bid, BidStatus
 from app.models.deal_review import DealReview
+from app.models.nda import NDA
+from app.models.deal_question import DealQuestion
 from app.services.auction import compute_auction_state
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -132,6 +134,7 @@ async def public_courtier_profile(
         "id": str(user.id),
         "full_name": user.full_name,
         "agency_name": user.agency_name,
+        "oaciq_number": user.oaciq_number,
         "profile_photo_path": user.profile_photo_path,
         "published_deals": published,
         "completed_deals": completed,
@@ -285,26 +288,124 @@ async def public_marketplace(
     query = query.order_by(Deal.bid_close_at.asc())
 
     deals = (await db.execute(query)).scalars().all()
+    if not deals:
+        return []
+    deal_ids = [d.id for d in deals]
+
+    # NDA counts agrégés (preuve sociale)
+    nda_map: dict = {}
+    nr = await db.execute(
+        select(NDA.deal_id, func.count(NDA.id))
+        .where(NDA.deal_id.in_(deal_ids)).group_by(NDA.deal_id)
+    )
+    for did, c in nr.all():
+        nda_map[did] = int(c)
+
     out = []
     for d in deals:
         state = await compute_auction_state(d, db)
-        out.append({
-            "id": str(d.id),
-            "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
-            "city": d.city,
-            "region": d.region,
-            "mrc": d.mrc,
-            "postal_code": d.postal_code,
-            "floor_price": d.floor_price,
-            "displayed_price": state["displayed_price"],
-            "bidders_count": state["bidders_count"],
-            "min_bid_increment": d.min_bid_increment,
-            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
-            "teaser_text": d.teaser_text,
-            "teaser_photo_path": d.teaser_photo_path,
-            "num_units": d.num_units,
-        })
+        out.append(_serialize_public_deal(d, state, nda_map.get(d.id, 0)))
     return out
+
+
+def _serialize_public_deal(d, state, nda_count):
+    """Sérialisation commune pour la marketplace + page publique d'un deal."""
+    cap_rate = None
+    if d.net_revenue and d.floor_price:
+        cap_rate = round(d.net_revenue / d.floor_price * 100, 2)
+    ratio_floor_eval = None
+    if d.floor_price and d.municipal_evaluation:
+        ratio_floor_eval = round(d.floor_price / d.municipal_evaluation * 100, 1)
+    return {
+        "id": str(d.id),
+        "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
+        "city": d.city,
+        "region": d.region,
+        "mrc": d.mrc,
+        "postal_code": d.postal_code,
+        # Financiers exposés au public
+        "floor_price": d.floor_price,
+        "gross_revenue": d.gross_revenue,
+        "net_revenue": d.net_revenue,
+        "municipal_evaluation": d.municipal_evaluation,
+        "cap_rate": cap_rate,
+        "ratio_floor_eval_pct": ratio_floor_eval,
+        # Métriques propriété
+        "num_units": d.num_units,
+        "year_built": d.year_built,
+        "total_area_sqft": d.total_area_sqft,
+        "tax_roll_date": d.tax_roll_date.isoformat() if d.tax_roll_date else None,
+        # Enchère
+        "displayed_price": state["displayed_price"],
+        "bidders_count": state["bidders_count"],
+        "min_bid_increment": d.min_bid_increment,
+        "bid_open_at": d.bid_open_at.isoformat() if d.bid_open_at else None,
+        "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+        # Teaser visuel + texte (max 3 photos watermarquées — sprint v13)
+        "teaser_text": d.teaser_text,
+        "teaser_photo_path": d.teaser_photo_path,
+        "teaser_photo_paths": d.teaser_photo_paths or (
+            [d.teaser_photo_path] if d.teaser_photo_path else []
+        ),
+        # Preuve sociale
+        "ndas_count": nda_count,
+    }
+
+
+# ── Page publique d'un deal individuel (sans login) ──────────────────────────
+
+@router.get("/deals/{deal_id}")
+async def public_deal_detail(
+    deal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Vue teaser publique d'un deal — accessible sans authentification.
+       Ne renvoie JAMAIS adresse exacte, photos HD, courtier, documents, loyers individuels."""
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    # Statuts publics : enchère active ou terminée récemment
+    if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+        raise HTTPException(status_code=404, detail="Deal non disponible publiquement")
+
+    state = await compute_auction_state(deal, db)
+    nda_res = await db.execute(
+        select(func.count(NDA.id)).where(NDA.deal_id == deal_id)
+    )
+    nda_count = int(nda_res.scalar() or 0)
+
+    return _serialize_public_deal(deal, state, nda_count)
+
+
+@router.get("/deals/{deal_id}/questions")
+async def public_deal_questions(
+    deal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Q&R d'un deal — visibles publiquement (lecture seulement). Poser une question requiert le NDA."""
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+        raise HTTPException(status_code=404, detail="Deal non disponible publiquement")
+
+    qres = await db.execute(
+        select(DealQuestion).where(DealQuestion.deal_id == deal_id)
+        .order_by(DealQuestion.asked_at.desc()).limit(50)
+    )
+    questions = list(qres.scalars())
+    return [
+        {
+            "id": str(q.id),
+            "question": q.question,
+            "answer": q.answer,
+            "asked_at": q.asked_at.isoformat() if q.asked_at else None,
+            "answered_at": q.answered_at.isoformat() if q.answered_at else None,
+        }
+        for q in questions
+    ]
 
 
 

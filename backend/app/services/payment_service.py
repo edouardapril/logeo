@@ -289,9 +289,23 @@ async def attempt_winner_deposit(
 
     if payment.state == PaymentState.succeeded:
         winner_bid.payment_status = BidPaymentStatus.deposit_confirmed
-        deal.due_diligence_deadline = _utcnow() + timedelta(hours=settings.due_diligence_hours)
+        # Délai due diligence : 5 jours ouvrables (≈ 5×24h) — sprint v13
+        deal.due_diligence_deadline = _utcnow() + timedelta(days=5)
         deal.status = DealStatus.intro
         await db.flush()
+
+        # Sprint v13 item 4 — déclenche l'email d'introduction tripartite
+        try:
+            from app.services import email as email_service
+            courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+            courtier = courtier_res.scalar_one_or_none()
+            if courtier:
+                await email_service.send_depot_confirme(
+                    db, gagnant=acheteur, courtier=courtier,
+                    deal_id=deal.id, amount=winner_bid.amount,
+                )
+        except Exception:
+            pass  # ne bloque pas le flow si l'email échoue
     else:
         winner_bid.payment_status = BidPaymentStatus.failed
         deal.deposit_retry_until = _utcnow() + timedelta(hours=settings.deposit_retry_hours)

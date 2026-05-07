@@ -39,6 +39,11 @@ async def update_profile(
         current_user.full_name = payload.full_name
     if payload.phone is not None:
         current_user.phone = payload.phone
+    if payload.oaciq_number is not None and current_user.role == UserRole.courtier:
+        cleaned = (payload.oaciq_number or "").strip()
+        if cleaned and not (cleaned.isdigit() and len(cleaned) == 8):
+            raise HTTPException(status_code=400, detail="Numéro OACIQ invalide (8 chiffres requis)")
+        current_user.oaciq_number = cleaned or None
     await db.flush()
     return current_user
 

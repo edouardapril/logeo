@@ -12,10 +12,13 @@ export default function PublicLayout() {
             <Logo size="sm" />
           </Link>
           <nav className="flex items-center gap-4 text-sm">
-            <Link to="/marketplace" className="text-gray-700 hover:text-[#EA580C] font-medium">
+            <Link to="/marketplace" className="text-gray-700 hover:text-[#EA580C] font-medium hidden sm:inline">
               Marketplace
             </Link>
-            <Link to="/leaderboard" className="text-gray-700 hover:text-[#EA580C] font-medium">
+            <Link to="/comment-ca-marche" className="text-gray-700 hover:text-[#EA580C] font-medium hidden sm:inline">
+              Comment ça marche
+            </Link>
+            <Link to="/leaderboard" className="text-gray-700 hover:text-[#EA580C] font-medium hidden md:inline">
               Leaderboard
             </Link>
             {user ? (

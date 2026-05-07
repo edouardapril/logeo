@@ -30,20 +30,21 @@ import Profile from './pages/common/Profile'
 import Leaderboard from './pages/public/Leaderboard'
 import AcheteurPublic from './pages/public/AcheteurPublic'
 import Marketplace from './pages/public/Marketplace'
-import Landing from './pages/public/Landing'
+import HowItWorks from './pages/public/HowItWorks'
+import DealPublic from './pages/public/DealPublic'
 import PublicLayout from './components/layout/PublicLayout'
 
 function ProtectedRoute({ roles }) {
   const { user } = useAuth()
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/" replace />
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />
   return <Outlet />
 }
 
 function RoleRedirect() {
   const { user } = useAuth()
-  // Si pas connecté → page d'accueil publique (Landing)
-  if (!user) return <Landing />
+  // Si pas connecté → page de connexion (split orange/blanc) sert de page d'accueil
+  if (!user) return <Login />
   if (user.role === 'admin') return <Navigate to="/admin" replace />
   if (user.role === 'courtier') return <Navigate to="/courtier" replace />
   return <Navigate to="/acheteur/deals" replace />
@@ -54,7 +55,8 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Public */}
-        <Route path="/login" element={<Login />} />
+        {/* /login → redirige vers / (page d'accueil = login split orange/blanc) */}
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/register/courtier" element={<RegisterCourtier />} />
         <Route path="/register/acheteur" element={<RegisterAcheteur />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
@@ -107,6 +109,8 @@ export default function App() {
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/acheteur/:id" element={<AcheteurPublic />} />
+          <Route path="/comment-ca-marche" element={<HowItWorks />} />
+          <Route path="/deals/:id" element={<DealPublic />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

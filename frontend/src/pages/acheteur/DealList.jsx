@@ -4,6 +4,7 @@ import { Building2, Sparkles, MapPin } from 'lucide-react'
 import { listDealsApi } from '../../api/acheteur'
 import DealCard from '../../components/deal/DealCard'
 import Spinner from '../../components/ui/Spinner'
+import OnboardingProgress from '../../components/acheteur/OnboardingProgress'
 import { REGIONS, regionFromDeal } from '../../utils/constants'
 
 export default function DealList() {
@@ -55,6 +56,9 @@ export default function DealList() {
           Opportunités off-market en cours d'enchère · Mise à jour automatique
         </p>
       </div>
+
+      {/* Barre de progression onboarding (sprint UX item 2) */}
+      <OnboardingProgress />
 
       {/* Filtre régions */}
       {deals?.length > 0 && (

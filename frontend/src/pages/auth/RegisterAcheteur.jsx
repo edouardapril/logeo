@@ -7,6 +7,7 @@ import Logo from '../../components/ui/Logo'
 import TermsConsent, { allTermsAccepted } from '../../components/auth/TermsConsent'
 import { registerAcheteurApi, loginApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
+import { formatPhoneCA, isValidCAPhone } from '../../utils/phone'
 
 export default function RegisterAcheteur() {
   const [form, setForm] = useState({ email: '', password: '', full_name: '', phone: '' })
@@ -59,7 +60,15 @@ export default function RegisterAcheteur() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input label="Nom complet" required value={form.full_name} onChange={set('full_name')} />
-              <Input label="Téléphone" value={form.phone} onChange={set('phone')} placeholder="514-555-1234" />
+              <Input
+                label="Téléphone *"
+                required
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: formatPhoneCA(e.target.value) })}
+                placeholder="(514) 555-1234"
+                hint="Utilisé pour le 2FA SMS lors des paiements"
+                error={form.phone && !isValidCAPhone(form.phone) ? 'Format requis : (xxx) xxx-xxxx' : null}
+              />
             </div>
             <Input label="Email" type="email" required value={form.email} onChange={set('email')} />
             <Input label="Mot de passe" type="password" required value={form.password} onChange={set('password')} />
@@ -72,7 +81,7 @@ export default function RegisterAcheteur() {
               </p>
             </div>
 
-            {/* T&C — sprint final item 9 */}
+            {/* Conditions d'utilisation — sprint final item 9 */}
             <div className="pt-4 border-t border-gray-100">
               <p className="text-sm font-semibold text-gray-900 mb-3">
                 Conditions d'utilisation et confirmations légales

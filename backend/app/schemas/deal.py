@@ -18,6 +18,9 @@ class DealSubmit(BaseModel):
     yield_pct: float | None = None
     num_units: int | None = None
     teaser_text: str | None = None
+    year_built: int | None = None
+    total_area_sqft: int | None = None
+    tax_roll_date: datetime | None = None
     # Financials
     expenses: dict | None = None
     revenue_history: list | None = None
@@ -82,8 +85,12 @@ class DealTeaser(BaseModel):
     net_revenue: int | None = None
     yield_pct: float | None
     num_units: int | None
+    year_built: int | None = None
+    total_area_sqft: int | None = None
+    tax_roll_date: datetime | None = None
     teaser_text: str | None
-    teaser_photo_path: str | None = None  # photo watermarquée publique
+    teaser_photo_path: str | None = None        # photo watermarquée publique (legacy single)
+    teaser_photo_paths: list | None = None      # max 3 photos teaser watermarquées (v13)
     municipal_evaluation: int | None = None
     bid_open_at: datetime | None
     bid_close_at: datetime | None
@@ -99,6 +106,7 @@ class DealFull(DealTeaser):
     courtier_email: str
     courtier_phone: str | None
     agency_name: str | None
+    courtier_oaciq_number: str | None = None
     full_report_path: str | None
     photo_paths: list | None = None  # originaux haute résolution, post-NDA
     documents: dict | None

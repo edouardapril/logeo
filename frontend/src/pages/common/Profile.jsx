@@ -15,13 +15,19 @@ export default function Profile() {
   const fileRef = useRef(null)
   const { data: me, isLoading } = useQuery({ queryKey: ['me-profile'], queryFn: getMeApi })
 
-  const [profile, setProfile] = useState({ full_name: '', email: '', phone: '' })
+  const [profile, setProfile] = useState({ full_name: '', email: '', phone: '', oaciq_number: '' })
   const [pwd, setPwd] = useState({ current_password: '', new_password: '', confirm: '' })
   const [emailNotif, setEmailNotif] = useState(true)
+  const isCourtier = me?.role === 'courtier'
 
   useEffect(() => {
     if (me) {
-      setProfile({ full_name: me.full_name || '', email: me.email || '', phone: me.phone || '' })
+      setProfile({
+        full_name: me.full_name || '',
+        email: me.email || '',
+        phone: me.phone || '',
+        oaciq_number: me.oaciq_number || '',
+      })
       setEmailNotif(me.email_notifications ?? true)
     }
   }, [me?.id])
@@ -183,6 +189,20 @@ export default function Profile() {
               required
             />
           </div>
+          {isCourtier && (
+            <div className="md:col-span-2">
+              <Input
+                label="Numéro de licence OACIQ"
+                value={profile.oaciq_number}
+                onChange={(e) => setProfile({
+                  ...profile,
+                  oaciq_number: e.target.value.replace(/\D/g, '').slice(0, 8),
+                })}
+                placeholder="12345678"
+                hint="8 chiffres — visible par les acheteurs après signature du NDA"
+              />
+            </div>
+          )}
         </div>
         <button type="submit" disabled={updateMut.isPending} className="btn-primary mt-4">
           <Save className="h-4 w-4" /> {updateMut.isPending ? 'Enregistrement...' : 'Enregistrer'}

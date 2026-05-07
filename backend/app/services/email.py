@@ -195,33 +195,93 @@ async def send_depot_confirme(
     deal_id: uuid.UUID,
     amount: int,
 ):
-    # Email au gagnant
-    gagnant_html = f"""
-    <h2>Dépôt confirmé - Introduction officielle</h2>
-    <p>Bonjour {gagnant.full_name},</p>
-    <p>Votre dépôt a bien été reçu. Vous êtes officiellement l'acheteur retenu pour ce deal.</p>
-    <h3>Votre courtier</h3>
-    <p><strong>Nom :</strong> {courtier.full_name}</p>
-    <p><strong>Email :</strong> {courtier.email}</p>
-    <p><strong>Téléphone :</strong> {courtier.phone or 'N/A'}</p>
-    <p><strong>Agence :</strong> {courtier.agency_name or 'N/A'}</p>
-    <p>Le courtier vous contactera sous peu pour organiser la visite.</p>
+    """Email tripartite d'introduction officielle (sprint v13 item 4).
+
+    Envoyé automatiquement quand le dépôt 25 % du gagnant est confirmé Stripe.
+    Acheteur reçoit les coordonnées du courtier (incl. OACIQ).
+    Courtier reçoit les coordonnées de l'acheteur.
+    Admin reçoit une copie pour traçabilité.
     """
-    resend_id = await _send(gagnant.email, f"[Logeo] Introduction officielle - Deal {str(deal_id)[:8].upper()}", gagnant_html)
+    from app.models.deal import Deal
+    deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = deal_res.scalar_one_or_none()
+
+    short = str(deal_id)[:8].upper()
+    type_label = (deal.property_type.value if deal and hasattr(deal.property_type, "value")
+                  else str(getattr(deal, "property_type", "deal")))
+    city = deal.city if deal else ""
+    subject = f"Logeo — Introduction officielle · {type_label} · {city}"
+
+    # ── Body acheteur ────────────────────────────────────────────────────────
+    oaciq_line = (
+        f"<p><strong>N° licence OACIQ :</strong> {courtier.oaciq_number}</p>"
+        if courtier.oaciq_number else ""
+    )
+    gagnant_html = f"""
+    <h2>Félicitations ! Vous avez remporté l'enchère.</h2>
+    <p>Bonjour {gagnant.full_name},</p>
+    <p>Votre dépôt de <strong>{amount:,} $ CAD</strong> a été confirmé. L'introduction officielle est faite.</p>
+
+    <h3 style="color:#9A3412;">Voici les coordonnées de votre courtier :</h3>
+    <p><strong>Nom :</strong> {courtier.full_name}</p>
+    <p><strong>Téléphone :</strong> {courtier.phone or 'Non renseigné'}</p>
+    <p><strong>Email :</strong> <a href="mailto:{courtier.email}">{courtier.email}</a></p>
+    <p><strong>Agence :</strong> {courtier.agency_name or 'Non renseignée'}</p>
+    {oaciq_line}
+
+    <h3 style="color:#9A3412;">Prochaines étapes</h3>
+    <p>Vous avez <strong>5 jours ouvrables</strong> pour compléter votre due diligence
+       (visite physique, vérifications notaires, financement) et confirmer dans votre portail Logeo.</p>
+    <p>Une fois confirmé, le solde 75 % des frais Logeo sera débité automatiquement de votre carte enregistrée.</p>
+
+    <p>
+      <a href="{settings.frontend_url}/acheteur/deals/{deal_id}"
+         style="display:inline-block;padding:12px 22px;background:#EA580C;color:white;
+                text-decoration:none;border-radius:8px;font-weight:600;">
+        Confirmer ma due diligence
+      </a>
+    </p>
+    """.replace(",", " ")
+    resend_id = await _send(gagnant.email, subject, gagnant_html)
     await _log_email(db, EmailType.depot_confirme, gagnant.id, deal_id, resend_id)
 
-    # Email au courtier
+    # ── Body courtier ────────────────────────────────────────────────────────
     courtier_html = f"""
-    <h2>Votre acheteur a été confirmé</h2>
+    <h2>Un acheteur a remporté l'enchère sur votre deal.</h2>
     <p>Bonjour {courtier.full_name},</p>
-    <p>L'enchère sur votre deal est finalisée. Voici les coordonnées de votre acheteur :</p>
+    <p>L'enchère sur le deal <strong>{type_label} · {city}</strong> est finalisée.
+       Le dépôt 25 % a été confirmé.</p>
+
+    <h3 style="color:#9A3412;">Coordonnées de votre acheteur :</h3>
     <p><strong>Nom :</strong> {gagnant.full_name}</p>
-    <p><strong>Email :</strong> {gagnant.email}</p>
-    <p><strong>Téléphone :</strong> {gagnant.phone or 'N/A'}</p>
-    <p><strong>Prix retenu :</strong> {amount:,} $</p>
-    <p>Veuillez uploader la promesse d'achat signée dans l'application pour finaliser le deal.</p>
-    """
-    await _send(courtier.email, f"[Logeo] Acheteur confirmé - Action requise", courtier_html)
+    <p><strong>Téléphone :</strong> {gagnant.phone or 'Non renseigné'}</p>
+    <p><strong>Email :</strong> <a href="mailto:{gagnant.email}">{gagnant.email}</a></p>
+    <p><strong>Prix retenu :</strong> {amount:,} $ CAD</p>
+
+    <p>Vous pouvez le contacter directement pour organiser la visite et finaliser la PA.</p>
+    <p>L'acheteur a <strong>5 jours ouvrables</strong> pour compléter sa due diligence.
+       Vous serez informé du déclenchement du solde 75 %.</p>
+
+    <p>
+      <a href="{settings.frontend_url}/courtier/deals/{deal_id}"
+         style="display:inline-block;padding:12px 22px;background:#EA580C;color:white;
+                text-decoration:none;border-radius:8px;font-weight:600;">
+        Voir le deal
+      </a>
+    </p>
+    """.replace(",", " ")
+    await _send(courtier.email, subject, courtier_html)
+
+    # ── Copie admin (traçabilité) ────────────────────────────────────────────
+    admin_html = f"""
+    <h2>Introduction officielle déclenchée — {type_label} · {city}</h2>
+    <p>Deal : <strong>#{short}</strong></p>
+    <p>Acheteur gagnant : {gagnant.full_name} · {gagnant.email} · {gagnant.phone or '—'}</p>
+    <p>Courtier : {courtier.full_name} · {courtier.email} · OACIQ {courtier.oaciq_number or '—'}</p>
+    <p>Prix retenu : {amount:,} $ CAD</p>
+    <p>Délai due diligence : 5 jours ouvrables.</p>
+    """.replace(",", " ")
+    await _send(settings.admin_email, f"[Logeo Admin] Introduction · #{short}", admin_html)
 
 
 async def send_verdict_go(db: AsyncSession, courtier: User, deal_id: uuid.UUID):

@@ -1,30 +1,158 @@
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Building2, ShieldAlert, ShieldCheck } from 'lucide-react'
-import { courtierListDealsApi } from '../../api/courtier'
+import {
+  Plus, Building2, ShieldAlert, ShieldCheck, MessageSquare,
+  Trophy, Users, ArrowRight, MapPin, Clock,
+} from 'lucide-react'
+import { courtierListDealsEnrichedApi } from '../../api/courtier'
 import { conventionStatusApi } from '../../api/profile'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
+import CountdownBoxes from '../../components/ui/CountdownBoxes'
+import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
+import { regionLabel } from '../../utils/quebec'
 
 const formatMoney = (n) =>
-  new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
+  n == null ? '—' : new Intl.NumberFormat('fr-CA', {
+    style: 'currency', currency: 'CAD', minimumFractionDigits: 0,
+  }).format(n)
+
+const TABS = [
+  { value: 'active',   label: 'En cours' },
+  { value: 'pending',  label: "En attente d'approbation" },
+  { value: 'finished', label: 'Terminés' },
+]
+
+const ACTIVE_STATUSES   = ['bid', 'intro']
+const PENDING_STATUSES  = ['analyse', 'draft']
+const FINISHED_STATUSES = ['pa_signed', 'auction_ended', 'nogo']
+
+function MetricBadge({ icon: Icon, value, label, alert = false }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      <Icon className={`h-3.5 w-3.5 ${alert ? 'text-red-500' : 'text-gray-400'}`} />
+      <span className={`font-semibold ${alert ? 'text-red-700' : 'text-gray-700'}`}>{value}</span>
+      <span className="text-gray-500">{label}</span>
+    </div>
+  )
+}
+
+function DealCard360({ d }) {
+  const hasUnanswered = d.unanswered_questions_count > 0
+
+  return (
+    <div className="card p-5 hover:shadow-md hover:border-[#FDBA74] transition-all">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link to={`/courtier/deals/${d.id}`} className="font-semibold text-gray-900 hover:text-[#EA580C]">
+              {PROPERTY_TYPE_LABELS[d.property_type] || d.property_type}
+            </Link>
+            <Badge status={d.status} />
+          </div>
+          <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
+            <MapPin className="h-3 w-3" />
+            {d.city}{d.region && <span>· {regionLabel(d.region)}</span>}
+          </p>
+        </div>
+        {d.bid_close_at && d.status === 'bid' && (
+          <CountdownBoxes closeAt={d.bid_close_at} size="compact" />
+        )}
+      </div>
+
+      {/* Métriques 360 */}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <MetricBadge icon={Users} value={d.ndas_count} label="NDAs signés" />
+        <MetricBadge icon={Trophy} value={d.bidders_count} label="bidders" />
+        <MetricBadge
+          icon={MessageSquare}
+          value={d.unanswered_questions_count}
+          label="Q&R en attente"
+          alert={hasUnanswered}
+        />
+        <MetricBadge
+          icon={Clock}
+          value={d.bid_close_at && d.status === 'bid'
+            ? new Date(d.bid_close_at).toLocaleDateString('fr-CA')
+            : '—'}
+          label="fin"
+        />
+      </div>
+
+      {/* Prix actuel (uniquement si en bid actif) */}
+      {d.status === 'bid' && d.displayed_price != null && (
+        <div className="rounded-lg bg-[#FFEDD5] border border-[#FDBA74] p-2.5 mb-3 flex items-center justify-between">
+          <span className="text-xs text-[#9A3412]">Prix actuel anonyme</span>
+          <span className="font-bold text-[#9A3412]">{formatMoney(d.displayed_price)}</span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-500">
+          Plancher : {formatMoney(d.floor_price)}
+        </p>
+        <div className="flex gap-2">
+          {hasUnanswered && (
+            <Link
+              to={`/courtier/deals/${d.id}`}
+              className="text-xs font-semibold inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200"
+            >
+              <MessageSquare className="h-3 w-3" />
+              Répondre ({d.unanswered_questions_count})
+            </Link>
+          )}
+          <Link
+            to={`/courtier/deals/${d.id}`}
+            className="text-xs font-semibold inline-flex items-center gap-1 link-brand"
+          >
+            Voir le deal <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function CourtierDashboard() {
+  const [tab, setTab] = useState('active')
+
   const { data: deals, isLoading } = useQuery({
-    queryKey: ['courtier', 'deals'],
-    queryFn: courtierListDealsApi,
+    queryKey: ['courtier', 'deals-enriched'],
+    queryFn: courtierListDealsEnrichedApi,
+    refetchInterval: 30_000,
   })
   const { data: conv } = useQuery({
     queryKey: ['convention-status'],
     queryFn: conventionStatusApi,
   })
 
+  const counts = useMemo(() => {
+    const c = { active: 0, pending: 0, finished: 0 }
+    if (deals) {
+      for (const d of deals) {
+        if (ACTIVE_STATUSES.includes(d.status)) c.active++
+        else if (PENDING_STATUSES.includes(d.status)) c.pending++
+        else if (FINISHED_STATUSES.includes(d.status)) c.finished++
+      }
+    }
+    return c
+  }, [deals])
+
+  const filtered = useMemo(() => {
+    if (!deals) return []
+    const set = tab === 'active' ? ACTIVE_STATUSES :
+                tab === 'pending' ? PENDING_STATUSES :
+                FINISHED_STATUSES
+    return deals.filter(d => set.includes(d.status))
+  }, [deals, tab])
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Mes deals</h1>
-          <p className="text-sm text-gray-600">Suivi de vos soumissions et enchères en cours</p>
+          <p className="text-sm text-gray-600">Vue 360 — temps réel · refresh 30s</p>
         </div>
         <Link to="/courtier/submit" className="btn-primary">
           <Plus className="h-4 w-4" /> Soumettre un deal
@@ -54,47 +182,47 @@ export default function CourtierDashboard() {
         </div>
       )}
 
-      {isLoading ? <Spinner /> : !deals?.length ? (
+      {/* Tabs */}
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-200 overflow-x-auto">
+        {TABS.map(t => {
+          const c = counts[t.value]
+          const active = tab === t.value
+          return (
+            <button
+              key={t.value}
+              onClick={() => setTab(t.value)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                active
+                  ? 'border-[#EA580C] text-[#EA580C]'
+                  : 'border-transparent text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {t.label}
+              <span className={`text-xs px-1.5 rounded-full ${
+                active ? 'bg-[#FFEDD5] text-[#C2410C]' : 'bg-gray-100 text-gray-600'
+              }`}>{c}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {isLoading ? <Spinner /> : !filtered.length ? (
         <div className="card p-12 text-center">
           <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-          <h3 className="font-semibold text-gray-900 mb-1">Aucun deal pour le moment</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            Soumettez votre premier deal off-market à l'équipe Logeo
-          </p>
-          <Link to="/courtier/submit" className="btn-primary inline-flex">
-            <Plus className="h-4 w-4" /> Soumettre un deal
-          </Link>
+          <h3 className="font-semibold text-gray-900 mb-1">
+            {tab === 'active'   && "Aucune enchère active pour le moment"}
+            {tab === 'pending'  && "Aucun deal en attente d'approbation"}
+            {tab === 'finished' && "Aucun deal terminé"}
+          </h3>
+          {tab === 'active' && (
+            <Link to="/courtier/submit" className="btn-primary inline-flex mt-2">
+              <Plus className="h-4 w-4" /> Soumettre un deal
+            </Link>
+          )}
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Ville</th>
-                <th className="px-4 py-3">Prix demandé</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3">Soumis le</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {deals.map(d => (
-                <tr key={d.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <Link to={`/courtier/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
-                      {d.property_type}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{d.city}</td>
-                  <td className="px-4 py-3 font-medium">{formatMoney(d.asking_price)}</td>
-                  <td className="px-4 py-3"><Badge status={d.status} /></td>
-                  <td className="px-4 py-3 text-xs text-gray-500">
-                    {new Date(d.created_at).toLocaleDateString('fr-CA')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.map(d => <DealCard360 key={d.id} d={d} />)}
         </div>
       )}
     </div>

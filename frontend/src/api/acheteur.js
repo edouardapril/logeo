@@ -25,3 +25,8 @@ export const requestVisitApi = (dealId, payload) =>
 // Sprint final item 15
 export const myAuctionsApi = () =>
   client.get('/acheteur/my-auctions').then(r => r.data)
+
+// Sprint UX item 2 — onboarding
+export const onboardingStatusApi = (dealId = null) =>
+  client.get('/acheteur/onboarding-status', { params: dealId ? { deal_id: dealId } : {} })
+    .then(r => r.data)

@@ -33,6 +33,77 @@ async def list_my_deals(
     return result.scalars().all()
 
 
+# Sprint UX item 5 — vision 360 par deal
+@router.get("/deals/enriched")
+async def list_my_deals_enriched(
+    current_user: User = Depends(require_courtier),
+    db: AsyncSession = Depends(get_db),
+):
+    """Liste enrichie des deals du courtier — NDAs, bids, FAQ count, prix actuel."""
+    from sqlalchemy import func
+    from app.models.nda import NDA
+    from app.models.deal_question import DealQuestion
+    from app.models.bid import Bid, BidStatus
+    from app.services.auction import compute_auction_state
+
+    res = await db.execute(
+        select(Deal).where(Deal.courtier_id == current_user.id).order_by(Deal.created_at.desc())
+    )
+    deals = list(res.scalars())
+    if not deals:
+        return []
+    deal_ids = [d.id for d in deals]
+
+    ndas_map: dict = {}
+    nr = await db.execute(
+        select(NDA.deal_id, func.count(NDA.id)).where(NDA.deal_id.in_(deal_ids)).group_by(NDA.deal_id)
+    )
+    for did, c in nr.all():
+        ndas_map[did] = int(c)
+
+    bids_map: dict = {}
+    br = await db.execute(
+        select(Bid.deal_id, func.count(func.distinct(Bid.acheteur_id)))
+        .where(Bid.deal_id.in_(deal_ids), Bid.status == BidStatus.active)
+        .group_by(Bid.deal_id)
+    )
+    for did, c in br.all():
+        bids_map[did] = int(c)
+
+    unans_map: dict = {}
+    qr = await db.execute(
+        select(DealQuestion.deal_id, func.count(DealQuestion.id))
+        .where(DealQuestion.deal_id.in_(deal_ids), DealQuestion.answer.is_(None))
+        .group_by(DealQuestion.deal_id)
+    )
+    for did, c in qr.all():
+        unans_map[did] = int(c)
+
+    out = []
+    for d in deals:
+        displayed_price = None
+        if d.status == DealStatus.bid:
+            state = await compute_auction_state(d, db)
+            displayed_price = state["displayed_price"]
+
+        out.append({
+            "id": str(d.id),
+            "city": d.city,
+            "region": d.region,
+            "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "asking_price": d.asking_price,
+            "floor_price": d.floor_price,
+            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+            "created_at": d.created_at.isoformat(),
+            "ndas_count": ndas_map.get(d.id, 0),
+            "bidders_count": bids_map.get(d.id, 0),
+            "unanswered_questions_count": unans_map.get(d.id, 0),
+            "displayed_price": displayed_price,
+        })
+    return out
+
+
 @router.get("/deals/{deal_id}", response_model=DealTeaser)
 async def get_my_deal(
     deal_id: uuid.UUID,
@@ -155,9 +226,14 @@ async def upload_photos(
 
     subfolder = f"deals/{deal_id}/photos"
     new_paths: list[str] = []
-    first_idx_overall = len(existing)  # si 0 photo existante, la première upload sera l'index 0
 
-    for offset, f in enumerate(files):
+    # Sprint v13 item 5 — 3 photos teaser watermarquées au total
+    teasers = list(deal.teaser_photo_paths or [])
+    if not teasers and deal.teaser_photo_path:
+        # Migration douce : récupère la photo teaser legacy si elle existe
+        teasers = [deal.teaser_photo_path]
+
+    for f in files:
         if f.content_type not in ALLOWED_PHOTO_MIMES:
             raise HTTPException(status_code=400, detail=f"Format non supporté : {f.content_type}")
         content = await f.read()
@@ -172,24 +248,31 @@ async def upload_photos(
         )
         new_paths.append(original_path)
 
-        # Si c'est la 1re photo du deal et qu'il n'y a pas encore de teaser : générer watermark
-        if first_idx_overall == 0 and offset == 0 and not deal.teaser_photo_path:
+        # Watermark des 3 premières photos (si pas encore atteint)
+        if len(teasers) < 3:
             try:
                 wm_bytes = watermark_svc.watermark_image(content)
-                deal.teaser_photo_path = storage_svc.save(
+                wm_path = storage_svc.save(
                     content=wm_bytes,
-                    filename=f"teaser_{f.filename or 'cover.jpg'}",
+                    filename=f"teaser_{len(teasers)}_{f.filename or 'cover.jpg'}",
                     kind=storage_svc.KIND_DEALS,
                     subfolder=f"deals/{deal_id}",
                     content_type="image/jpeg",
                 )
+                teasers.append(wm_path)
+                if not deal.teaser_photo_path:
+                    deal.teaser_photo_path = wm_path  # backward compat single
             except Exception:
-                # ne bloque pas l'upload si le watermark plante
                 pass
 
     deal.photo_paths = existing + new_paths
+    deal.teaser_photo_paths = teasers
     await db.flush()
-    return {"photo_paths": deal.photo_paths, "teaser_photo_path": deal.teaser_photo_path}
+    return {
+        "photo_paths": deal.photo_paths,
+        "teaser_photo_path": deal.teaser_photo_path,
+        "teaser_photo_paths": deal.teaser_photo_paths,
+    }
 
 
 @router.delete("/deals/{deal_id}/photos")

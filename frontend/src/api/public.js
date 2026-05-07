@@ -11,3 +11,9 @@ export const leaderboardApi = (limit = 10) =>
 
 export const publicMarketplaceApi = (params = {}) =>
   client.get('/public/marketplace', { params }).then(r => r.data)
+
+export const publicDealApi = (id) =>
+  client.get(`/public/deals/${id}`).then(r => r.data)
+
+export const publicDealQuestionsApi = (id) =>
+  client.get(`/public/deals/${id}/questions`).then(r => r.data)

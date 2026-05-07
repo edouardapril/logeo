@@ -54,7 +54,11 @@ class Deal(Base):
     gross_revenue: Mapped[int | None] = mapped_column(Integer)
     yield_pct: Mapped[float | None] = mapped_column(Float)
     num_units: Mapped[int | None] = mapped_column(Integer)
+    year_built: Mapped[int | None] = mapped_column(Integer)
+    total_area_sqft: Mapped[int | None] = mapped_column(Integer)
+    tax_roll_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     photo_paths: Mapped[list | None] = mapped_column(JSON)
+    teaser_photo_paths: Mapped[list | None] = mapped_column(JSON)  # max 3 paths watermarquées
 
     # Visible dans le teaser public
     teaser_text: Mapped[str | None] = mapped_column(Text)

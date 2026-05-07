@@ -60,6 +60,9 @@ export default function SubmitDeal() {
     net_revenue: '',
     yield_pct: '',
     num_units: '',
+    year_built: '',
+    total_area_sqft: '',
+    tax_roll_date: '',
     teaser_text: '',
     virtual_tour_url: '',
     visit_notes: '',
@@ -115,6 +118,9 @@ export default function SubmitDeal() {
         net_revenue: form.net_revenue ? parseInt(form.net_revenue) : null,
         yield_pct: form.yield_pct ? parseFloat(form.yield_pct) : null,
         num_units: form.num_units ? parseInt(form.num_units) : null,
+        year_built: form.year_built ? parseInt(form.year_built) : null,
+        total_area_sqft: form.total_area_sqft ? parseInt(form.total_area_sqft) : null,
+        tax_roll_date: form.tax_roll_date || null,
         teaser_text: form.teaser_text || null,
         virtual_tour_url: form.virtual_tour_url || null,
         visit_notes: form.visit_notes || null,
@@ -286,6 +292,23 @@ export default function SubmitDeal() {
                    value={form.num_units} onChange={set('num_units')} />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Année de construction" type="number" min="1700" max="2099"
+                   value={form.year_built} onChange={set('year_built')}
+                   placeholder="1985" />
+            <Input label="Superficie totale (pi²)" type="number" min="0"
+                   value={form.total_area_sqft} onChange={set('total_area_sqft')}
+                   placeholder="6500" />
+          </div>
+
+          <Input
+            label="Date au rôle foncier"
+            type="date"
+            value={form.tax_roll_date}
+            onChange={set('tax_roll_date')}
+            hint="Date de la dernière évaluation municipale connue"
+          />
+
           <Textarea
             label="Description / teaser"
             value={form.teaser_text} onChange={set('teaser_text')}
@@ -303,9 +326,10 @@ export default function SubmitDeal() {
           <div className="grid grid-cols-2 gap-4">
             <Input label="Prix demandé (CAD) *" required type="number" min="0"
                    value={form.asking_price} onChange={set('asking_price')} placeholder="800000" />
-            <Input label="Évaluation municipale (CAD)" type="number" min="0"
+            <Input label="Valeur au rôle foncier (CAD)" type="number" min="0"
                    value={form.municipal_evaluation} onChange={set('municipal_evaluation')}
-                   placeholder="650000" />
+                   placeholder="650000"
+                   hint="Évaluation municipale officielle" />
           </div>
 
           <Input
@@ -322,8 +346,9 @@ export default function SubmitDeal() {
                    value={form.net_revenue} onChange={set('net_revenue')} placeholder="42000" />
           </div>
 
-          <Input label="Rendement (%)" type="number" step="0.01" min="0"
-                 value={form.yield_pct} onChange={set('yield_pct')} placeholder="6.5" />
+          <Input label="TGA — Taux Global d'Actualisation (%)" type="number" step="0.01" min="0"
+                 value={form.yield_pct} onChange={set('yield_pct')} placeholder="6.5"
+                 hint="Cap rate / rendement de l'investissement" />
 
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Dépenses annuelles (CAD)</p>
