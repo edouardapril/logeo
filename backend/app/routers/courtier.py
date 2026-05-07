@@ -145,6 +145,14 @@ async def submit_deal(
     )
     db.add(deal)
     await db.flush()
+
+    # Log de diagnostic — confirme la sauvegarde en DB avec status = "analyse"
+    print(
+        f"[SUBMIT_DEAL] Deal {deal.id} sauvegarde OK · "
+        f"status={deal.status.value} · city={deal.city} · "
+        f"courtier={current_user.email} ({current_user.id})",
+        flush=True,
+    )
     return deal
 
 

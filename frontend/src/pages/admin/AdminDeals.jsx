@@ -31,7 +31,8 @@ const formatMoney = (n) =>
 
 export default function AdminDeals() {
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState('')
+  // "En analyse" par défaut — workflow principal admin (deals à approuver)
+  const [status, setStatus] = useState('analyse')
   const [location, setLocation] = useState({ region: '', mrc: '', city: '' })
   const [dateFrom, setDateFrom] = useState('')
   const [extendModal, setExtendModal] = useState(null)  // { dealId, currentClose }
@@ -39,7 +40,16 @@ export default function AdminDeals() {
 
   const { data: dealsRaw, isLoading } = useQuery({
     queryKey: ['admin', 'deals-enriched', status],
-    queryFn: () => adminListDealsEnrichedApi(status || undefined),
+    queryFn: async () => {
+      const data = await adminListDealsEnrichedApi(status || undefined)
+      // Diagnostic — visible dans la console du navigateur
+      console.log(
+        `[AdminDeals] GET /admin/deals/enriched?status=${status || 'ALL'} →`,
+        Array.isArray(data) ? `${data.length} deal(s)` : data,
+        data,
+      )
+      return data
+    },
     refetchInterval: 30_000,
   })
 
@@ -83,19 +93,29 @@ export default function AdminDeals() {
       <p className="text-sm text-gray-600 mb-6">Compteurs en temps réel · refresh 30s</p>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {STATUSES.map(s => (
-          <button
-            key={s.value}
-            onClick={() => setStatus(s.value)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              status === s.value
-                ? 'bg-[#EA580C] text-white'
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+        {STATUSES.map(s => {
+          const isActive = status === s.value
+          return (
+            <button
+              key={s.value}
+              onClick={() => setStatus(s.value)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 ${
+                isActive
+                  ? 'bg-[#EA580C] text-white'
+                  : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {s.label}
+              {isActive && dealsRaw && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {dealsRaw.length}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* Filtre région/MRC/ville/date — item 14 */}

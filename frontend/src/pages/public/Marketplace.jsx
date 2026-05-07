@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ArrowRight, SlidersHorizontal, ArrowUpDown } from 'lucide-react'
+import { Building2, ArrowRight, SlidersHorizontal, ArrowUpDown, BellRing } from 'lucide-react'
 import { publicMarketplaceApi } from '../../api/public'
 import Spinner from '../../components/ui/Spinner'
 import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
@@ -15,10 +15,10 @@ const formatMoney = (n) =>
   }).format(n)
 
 const SORTS = [
+  { value: 'timer_asc',  label: 'Ferme bientôt (urgent)' },
   { value: 'recent',     label: 'Plus récent' },
   { value: 'floor_asc',  label: 'Prix plancher croissant' },
   { value: 'floor_desc', label: 'Prix plancher décroissant' },
-  { value: 'timer_asc',  label: 'Timer croissant (ferme bientôt)' },
 ]
 
 export default function Marketplace() {
@@ -26,7 +26,7 @@ export default function Marketplace() {
   const [floorMin, setFloorMin] = useState('')
   const [floorMax, setFloorMax] = useState('')
   const [propertyType, setPropertyType] = useState('')
-  const [sort, setSort] = useState('recent')
+  const [sort, setSort] = useState('timer_asc')
 
   const { data: deals, isLoading } = useQuery({
     queryKey: ['marketplace', filters.region, filters.mrc, filters.city],
@@ -153,14 +153,27 @@ export default function Marketplace() {
 
       {isLoading ? (
         <Spinner label="Chargement des enchères..." />
+      ) : !deals?.length ? (
+        // Marketplace vide — aucun deal actif sur la plateforme
+        <div className="card p-12 text-center bg-[#FFF7ED] border-[#FED7AA]">
+          <BellRing className="h-12 w-12 mx-auto text-[#EA580C] mb-3" />
+          <h3 className="font-semibold text-gray-900 mb-1">
+            Aucune enchère en cours pour le moment.
+          </h3>
+          <p className="text-sm text-gray-600 mb-5">
+            Revenez bientôt — de nouveaux deals sont publiés régulièrement.
+          </p>
+          <Link to="/register/acheteur" className="btn-primary inline-flex">
+            S'inscrire pour être notifié <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       ) : !filtered.length ? (
+        // Filtres trop restrictifs — il y a des deals mais aucun ne correspond
         <div className="card p-12 text-center">
           <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
           <h3 className="font-semibold text-gray-900 mb-1">Aucune enchère pour ces critères</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Essayez d'élargir la recherche ou {' '}
-            <Link to="/register/acheteur" className="link-brand font-medium">inscrivez-vous</Link>
-            {' '}pour être notifié des nouveaux deals.
+            Essayez d'élargir la recherche en modifiant ou réinitialisant les filtres ci-dessus.
           </p>
         </div>
       ) : (
@@ -176,6 +189,7 @@ export default function Marketplace() {
         </>
       )}
 
+      {deals?.length > 0 && (
       <div className="mt-12 card p-6 bg-[#FFEDD5] border-[#FDBA74] text-center">
         <h2 className="font-bold text-[#9A3412] mb-2">Envie d'enchérir ?</h2>
         <p className="text-sm text-[#9A3412]/80 mb-4">
@@ -188,6 +202,7 @@ export default function Marketplace() {
           <Link to="/login" className="btn-secondary">Se connecter</Link>
         </div>
       </div>
+      )}
     </div>
   )
 }
