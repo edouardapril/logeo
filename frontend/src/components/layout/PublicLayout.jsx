@@ -18,9 +18,11 @@ export default function PublicLayout() {
             <Link to="/comment-ca-marche" className="text-gray-700 hover:text-[#EA580C] font-medium hidden sm:inline">
               Comment ça marche
             </Link>
+            {/* PAUSÉ : lien Leaderboard masqué dans le header public, code conservé pour réactivation
             <Link to="/leaderboard" className="text-gray-700 hover:text-[#EA580C] font-medium hidden md:inline">
               Leaderboard
             </Link>
+            */}
             {user ? (
               <Link to="/" className="btn-primary text-xs">Mon espace</Link>
             ) : (

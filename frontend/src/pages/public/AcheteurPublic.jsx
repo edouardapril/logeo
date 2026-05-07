@@ -33,8 +33,10 @@ export default function AcheteurPublic() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <Link to="/leaderboard" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
-        <ArrowLeft className="h-4 w-4" /> Retour au leaderboard
+      {/* PAUSÉ : leaderboard désactivé — retour redirigé vers la marketplace.
+          Pour réactiver : rétablir to="/leaderboard" et le label "Retour au leaderboard". */}
+      <Link to="/marketplace" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
+        <ArrowLeft className="h-4 w-4" /> Retour à la marketplace
       </Link>
 
       <div className="card p-6 mb-6">

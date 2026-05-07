@@ -27,7 +27,8 @@ import MesEncheres from './pages/acheteur/MesEncheres'
 
 import Profile from './pages/common/Profile'
 
-import Leaderboard from './pages/public/Leaderboard'
+// PAUSÉ : Leaderboard désactivé en UI. Code conservé pour réactivation rapide.
+// import Leaderboard from './pages/public/Leaderboard'
 import AcheteurPublic from './pages/public/AcheteurPublic'
 import Marketplace from './pages/public/Marketplace'
 import HowItWorks from './pages/public/HowItWorks'
@@ -107,7 +108,8 @@ export default function App() {
         {/* Pages publiques (pas d'auth requise) */}
         <Route element={<PublicLayout />}>
           <Route path="/marketplace" element={<Marketplace />} />
-          <Route path="/leaderboard" element={<Leaderboard />} />
+          {/* PAUSÉ : Leaderboard désactivé. Catch-all `*` (plus bas) redirige /leaderboard vers /. */}
+          {/* <Route path="/leaderboard" element={<Leaderboard />} /> */}
           <Route path="/acheteur/:id" element={<AcheteurPublic />} />
           <Route path="/comment-ca-marche" element={<HowItWorks />} />
           <Route path="/deals/:id" element={<DealPublic />} />
