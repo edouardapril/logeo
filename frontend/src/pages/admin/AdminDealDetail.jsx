@@ -151,10 +151,6 @@ export default function AdminDealDetail() {
                   <MapPin className="h-3 w-3 text-red-500" /> {deal.address_private}
                 </dd>
               </div>
-              <div>
-                <dt className="text-gray-500 text-xs">Prix demandé</dt>
-                <dd className="font-medium">{formatMoney(deal.asking_price)}</dd>
-              </div>
               {deal.gross_revenue && (
                 <div>
                   <dt className="text-gray-500 text-xs">Revenus bruts</dt>

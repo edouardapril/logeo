@@ -53,7 +53,6 @@ export default function SubmitDeal() {
     city: '',
     postal_code: '',
     address_private: '',
-    asking_price: '',
     floor_price: '',
     municipal_evaluation: '',
     gross_revenue: '',
@@ -111,7 +110,6 @@ export default function SubmitDeal() {
         city: form.city,
         postal_code: form.postal_code,
         address_private: form.address_private,
-        asking_price: parseInt(form.asking_price),
         floor_price: form.floor_price ? parseInt(form.floor_price) : null,
         municipal_evaluation: form.municipal_evaluation ? parseInt(form.municipal_evaluation) : null,
         gross_revenue: form.gross_revenue ? parseInt(form.gross_revenue) : null,
@@ -171,16 +169,12 @@ export default function SubmitDeal() {
   const onSubmit = (e) => {
     e.preventDefault()
     if (!form.region) { toast.error('Région requise'); return }
-    if (!form.city || !form.postal_code || !form.address_private || !form.asking_price) {
-      toast.error('Adresse, ville, code postal et prix demandé sont obligatoires')
+    if (!form.city || !form.postal_code || !form.address_private) {
+      toast.error('Adresse, ville et code postal sont obligatoires')
       return
     }
     if (!form.floor_price) {
       toast.error('Le prix plancher est obligatoire — c\'est l\'engagement ferme du vendeur')
-      return
-    }
-    if (parseInt(form.floor_price) > parseInt(form.asking_price)) {
-      toast.error('Le prix plancher ne peut pas être supérieur au prix demandé')
       return
     }
     submit.mutate()
@@ -324,8 +318,6 @@ export default function SubmitDeal() {
           </h2>
 
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Prix demandé (CAD) *" required type="number" min="0"
-                   value={form.asking_price} onChange={set('asking_price')} placeholder="800000" />
             <Input label="Valeur au rôle foncier (CAD)" type="number" min="0"
                    value={form.municipal_evaluation} onChange={set('municipal_evaluation')}
                    placeholder="650000"

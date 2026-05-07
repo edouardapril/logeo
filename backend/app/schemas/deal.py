@@ -11,7 +11,6 @@ class DealSubmit(BaseModel):
     city: str
     postal_code: str
     address_private: str
-    asking_price: int
     floor_price: int | None = None
     gross_revenue: int | None = None
     net_revenue: int | None = None
@@ -78,7 +77,6 @@ class DealTeaser(BaseModel):
     region: str | None = None
     mrc: str | None = None
     postal_code: str | None = None
-    asking_price: int
     floor_price: int | None = None
     min_bid_increment: int = 10000
     gross_revenue: int | None
@@ -144,7 +142,6 @@ class DealListItem(BaseModel):
     region: str | None = None
     mrc: str | None = None
     postal_code: str | None = None
-    asking_price: int
     floor_price: int | None = None
     bid_close_at: datetime | None
     created_at: datetime

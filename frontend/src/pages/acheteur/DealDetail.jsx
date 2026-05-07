@@ -224,7 +224,6 @@ export default function DealDetail() {
   const ddDone = !!deal.due_diligence_completed_at
 
   // Calculs financiers
-  // Calculs basés sur prix plancher (asking_price n'est plus exposé côté acheteur — item 5)
   const capRate = deal.net_revenue && deal.floor_price
     ? ((deal.net_revenue / deal.floor_price) * 100).toFixed(2)
     : null

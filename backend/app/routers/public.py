@@ -267,7 +267,6 @@ async def public_marketplace(
       - teaser_text
 
     Champs JAMAIS exposés ici :
-      - asking_price (interne admin)
       - address_private (post-NDA)
       - photo_paths originales (post-NDA)
       - documents

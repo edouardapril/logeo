@@ -92,7 +92,6 @@ async def list_my_deals_enriched(
             "region": d.region,
             "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
             "status": d.status.value if hasattr(d.status, "value") else str(d.status),
-            "asking_price": d.asking_price,
             "floor_price": d.floor_price,
             "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
             "created_at": d.created_at.isoformat(),

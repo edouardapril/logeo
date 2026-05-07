@@ -36,7 +36,6 @@ class DealAdminListItem(BaseModel):
     status: str
     property_type: str
     city: str
-    asking_price: int
     floor_price: int | None = None
     bid_close_at: datetime | None
     created_at: datetime

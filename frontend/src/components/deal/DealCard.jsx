@@ -62,7 +62,6 @@ export default function DealCard({ deal, to }) {
         <p className="text-sm text-gray-600 mb-4 line-clamp-2">{deal.teaser_text}</p>
       )}
 
-      {/* Item 5 : on n'affiche plus 'asking_price' aux acheteurs — uniquement le plancher */}
       <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
         {deal.floor_price != null && (
           <div>

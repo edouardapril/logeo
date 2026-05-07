@@ -150,7 +150,6 @@ export default function AdminDeals() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
                 <th className="px-4 py-3">Type · Ville</th>
-                <th className="px-4 py-3 text-right">Prix demandé</th>
                 <th className="px-4 py-3 text-right">Plancher</th>
                 <th className="px-4 py-3 text-center" title="Bids reçus">
                   <Trophy className="h-3.5 w-3.5 inline" />
@@ -177,7 +176,6 @@ export default function AdminDeals() {
                       {d.city}{d.region && <span className="text-gray-400"> · {regionLabel(d.region)}</span>}
                     </p>
                   </td>
-                  <td className="px-4 py-3 font-medium text-right">{formatMoney(d.asking_price)}</td>
                   <td className="px-4 py-3 text-right text-[#C2410C] font-medium">
                     {formatMoney(d.floor_price)}
                   </td>

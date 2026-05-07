@@ -161,7 +161,7 @@ async def list_deals_enriched(
         out.append(DealAdminListItem(
             id=d.id, status=d.status.value if hasattr(d.status, "value") else str(d.status),
             property_type=d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
-            city=d.city, asking_price=d.asking_price, floor_price=d.floor_price,
+            city=d.city, floor_price=d.floor_price,
             bid_close_at=d.bid_close_at, created_at=d.created_at,
             bids_count=bids_count_map.get(d.id, 0),
             ndas_count=ndas_count_map.get(d.id, 0),

@@ -48,7 +48,6 @@ class Deal(Base):
 
     postal_code: Mapped[str | None] = mapped_column(String(10))
 
-    asking_price: Mapped[int] = mapped_column(Integer, nullable=False)
     floor_price: Mapped[int | None] = mapped_column(Integer)  # admin only
     gross_revenue: Mapped[int | None] = mapped_column(Integer)
     yield_pct: Mapped[float | None] = mapped_column(Float)
