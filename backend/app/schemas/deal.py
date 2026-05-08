@@ -169,6 +169,7 @@ class DealAdminView(DealFull):
     fee_minimum: int | None
     floor_price: int | None = None
     updated_at: datetime
+    archived_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -195,6 +196,7 @@ class DealCourtierFull(DealTeaser):
     fee_pct: float | None = None
     fee_minimum: int | None = None
     is_locked: bool = False  # True après démarrage des enchères → fiche read-only
+    archived_at: datetime | None = None  # Visible à l'owner pour information
 
     model_config = {"from_attributes": True}
 

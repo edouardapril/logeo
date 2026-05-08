@@ -111,6 +111,7 @@ async def public_courtier_profile(
         select(func.count(Deal.id)).where(
             Deal.courtier_id == user_id,
             Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.archived_at.is_(None),
         )
     )
     published = int(published_res.scalar() or 0)
@@ -118,6 +119,7 @@ async def public_courtier_profile(
     completed_res = await db.execute(
         select(func.count(Deal.id)).where(
             Deal.courtier_id == user_id, Deal.status == DealStatus.pa_signed,
+            Deal.archived_at.is_(None),
         )
     )
     completed = int(completed_res.scalar() or 0)
@@ -162,7 +164,11 @@ async def leaderboard(
             func.count(Bid.id).label("completed"),
         )
         .join(Deal, Deal.id == Bid.deal_id)
-        .where(Bid.status == BidStatus.winner, Deal.status == DealStatus.pa_signed)
+        .where(
+            Bid.status == BidStatus.winner,
+            Deal.status == DealStatus.pa_signed,
+            Deal.archived_at.is_(None),
+        )
         .group_by(Bid.acheteur_id)
     ).subquery()
 
@@ -208,7 +214,10 @@ async def leaderboard(
             func.count(Deal.id).label("published"),
             completed_expr.label("completed"),
         )
-        .where(Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]))
+        .where(
+            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.archived_at.is_(None),
+        )
         .group_by(Deal.courtier_id)
     ).subquery()
 
@@ -278,6 +287,7 @@ async def public_marketplace(
         Deal.status == DealStatus.bid,
         Deal.bid_close_at.isnot(None),
         Deal.bid_close_at > now,
+        Deal.archived_at.is_(None),
     )
     if region:
         query = query.where(Deal.region == region)
@@ -365,7 +375,7 @@ async def public_deal_detail(
        Ne renvoie JAMAIS adresse exacte, photos HD, courtier, documents, loyers individuels."""
     res = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = res.scalar_one_or_none()
-    if not deal:
+    if not deal or deal.archived_at is not None:
         raise HTTPException(status_code=404, detail="Deal introuvable")
     # Statuts publics : enchère active ou terminée récemment
     if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
@@ -388,7 +398,7 @@ async def public_deal_questions(
     """Q&R d'un deal — visibles publiquement (lecture seulement). Poser une question requiert le NDA."""
     res = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = res.scalar_one_or_none()
-    if not deal:
+    if not deal or deal.archived_at is not None:
         raise HTTPException(status_code=404, detail="Deal introuvable")
     if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
         raise HTTPException(status_code=404, detail="Deal non disponible publiquement")

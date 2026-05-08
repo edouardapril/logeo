@@ -11,6 +11,12 @@ export const adminListDealsApi = (status) =>
   client.get('/admin/deals', { params: status ? { status } : {} }).then(r => r.data)
 export const adminGetDealApi = (dealId) => client.get(`/admin/deals/${dealId}`).then(r => r.data)
 export const verdictApi = (dealId, data) => client.post(`/admin/deals/${dealId}/verdict`, data).then(r => r.data)
+export const archiveDealApi = (dealId) =>
+  client.post(`/admin/deals/${dealId}/archive`).then(r => r.data)
+export const unarchiveDealApi = (dealId) =>
+  client.post(`/admin/deals/${dealId}/unarchive`).then(r => r.data)
+export const deleteDealApi = (dealId) =>
+  client.delete(`/admin/deals/${dealId}`).then(r => r.data)
 
 // Bids
 export const adminListBidsApi = (dealId) => client.get(`/admin/deals/${dealId}/bids`).then(r => r.data)
@@ -23,8 +29,10 @@ export const confirmBalanceApi = (dealId, data) =>
 export const adminMetricsApi = () =>
   client.get('/admin/dashboard/metrics').then(r => r.data)
 
-export const adminListDealsEnrichedApi = (status) =>
-  client.get('/admin/deals/enriched', { params: status ? { status } : {} }).then(r => r.data)
+export const adminListDealsEnrichedApi = (status, includeArchived = true) =>
+  client.get('/admin/deals/enriched', {
+    params: { ...(status ? { status } : {}), include_archived: includeArchived },
+  }).then(r => r.data)
 
 export const extendBidCloseApi = (dealId, isoDateTime) =>
   client.post(`/admin/deals/${dealId}/extend-bid-close`, { bid_close_at: isoDateTime }).then(r => r.data)

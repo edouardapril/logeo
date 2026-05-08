@@ -101,6 +101,11 @@ class Deal(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Archivage admin (lot 2 item 1) — masque le deal aux acheteurs/courtiers
+    # tout en restant restaurable. NULL = visible. Suppression hard via DELETE
+    # endpoint séparé.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
     courtier = relationship("User", back_populates="deals", foreign_keys=[courtier_id])
     bids = relationship("Bid", back_populates="deal", order_by="Bid.amount.desc()")
     ndas = relationship("NDA", back_populates="deal")

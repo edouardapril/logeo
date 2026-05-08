@@ -1,11 +1,15 @@
 import { useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { ArrowLeft, MapPin, Building, User, FileText, Trophy, DollarSign } from 'lucide-react'
+import {
+  ArrowLeft, MapPin, Building, User, FileText, Trophy, DollarSign,
+  Archive, ArchiveRestore, Trash2, AlertTriangle as AlertTriangleIcon,
+} from 'lucide-react'
 import {
   adminGetDealApi, adminListBidsApi, verdictApi,
   confirmDepositApi, confirmBalanceApi,
+  archiveDealApi, unarchiveDealApi, deleteDealApi,
 } from '../../api/admin'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
@@ -21,12 +25,15 @@ const formatMoney = (n) =>
 export default function AdminDealDetail() {
   const { dealId } = useParams()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [verdictModal, setVerdictModal] = useState(null) // 'go' | 'nogo' | null
   const [verdictForm, setVerdictForm] = useState({
     fee_pct: 1.5, fee_minimum: 5000, bid_close_at: '', nogo_reason: '',
   })
   const [interacModal, setInteracModal] = useState(null) // 'deposit' | 'balance' | null
   const [interacRef, setInteracRef] = useState('')
+  const [deleteModal, setDeleteModal] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
   const { data: deal, isLoading } = useQuery({
     queryKey: ['admin', 'deal', dealId],
@@ -67,6 +74,35 @@ export default function AdminDealDetail() {
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
 
+  const archiveMut = useMutation({
+    mutationFn: () => archiveDealApi(dealId),
+    onSuccess: () => {
+      toast.success('Deal archivé')
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const unarchiveMut = useMutation({
+    mutationFn: () => unarchiveDealApi(dealId),
+    onSuccess: () => {
+      toast.success('Deal restauré')
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: () => deleteDealApi(dealId),
+    onSuccess: () => {
+      toast.success('Deal supprimé définitivement')
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+      setDeleteModal(false)
+      navigate('/admin/deals')
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
   if (isLoading) return <Spinner label="Chargement du deal..." />
   if (!deal) return null
 
@@ -102,40 +138,80 @@ export default function AdminDealDetail() {
         <ArrowLeft className="h-4 w-4" /> Retour
       </Link>
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex items-center gap-3 mb-1 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">
               {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
             </h1>
             <Badge status={deal.status} />
+            {deal.archived_at && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-700">
+                <Archive className="h-3 w-3" /> Archivé
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-600">ID : {deal.id}</p>
+          {deal.archived_at && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Archivé le {new Date(deal.archived_at).toLocaleString('fr-CA')}
+            </p>
+          )}
         </div>
 
-        {canVerdict && (
-          <div className="flex gap-2">
-            <button onClick={() => setVerdictModal('nogo')} className="btn-secondary">
-              NO GO
-            </button>
+        <div className="flex gap-2 flex-wrap">
+          {canVerdict && (
+            <>
+              <button onClick={() => setVerdictModal('nogo')} className="btn-secondary">
+                NO GO
+              </button>
+              <button
+                onClick={() => {
+                  const close = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+                  const pad = (n) => String(n).padStart(2, '0')
+                  const localIso =
+                    `${close.getFullYear()}-${pad(close.getMonth() + 1)}-${pad(close.getDate())}` +
+                    `T${pad(close.getHours())}:${pad(close.getMinutes())}`
+                  setVerdictForm({ ...verdictForm, bid_close_at: localIso })
+                  setVerdictModal('go')
+                }}
+                className="btn-primary"
+              >
+                GO · Publier
+              </button>
+            </>
+          )}
+
+          {/* Archiver / Désarchiver */}
+          {deal.archived_at ? (
             <button
-              onClick={() => {
-                // Préremplit bid_close_at avec now + 10 jours (durée Logeo standard)
-                const close = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
-                // Format datetime-local : "YYYY-MM-DDTHH:mm" en heure locale
-                const pad = (n) => String(n).padStart(2, '0')
-                const localIso =
-                  `${close.getFullYear()}-${pad(close.getMonth() + 1)}-${pad(close.getDate())}` +
-                  `T${pad(close.getHours())}:${pad(close.getMinutes())}`
-                setVerdictForm({ ...verdictForm, bid_close_at: localIso })
-                setVerdictModal('go')
-              }}
-              className="btn-primary"
+              onClick={() => unarchiveMut.mutate()}
+              disabled={unarchiveMut.isPending}
+              className="btn-secondary inline-flex items-center gap-1.5"
             >
-              GO · Publier
+              <ArchiveRestore className="h-4 w-4" />
+              Désarchiver
             </button>
-          </div>
-        )}
+          ) : (
+            <button
+              onClick={() => archiveMut.mutate()}
+              disabled={archiveMut.isPending}
+              className="btn-secondary inline-flex items-center gap-1.5"
+            >
+              <Archive className="h-4 w-4" />
+              Archiver
+            </button>
+          )}
+
+          {/* Supprimer (danger) */}
+          <button
+            onClick={() => { setDeleteConfirmText(''); setDeleteModal(true) }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+          >
+            <Trash2 className="h-4 w-4" />
+            Supprimer
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -400,6 +476,49 @@ export default function AdminDealDetail() {
               className="btn-primary"
             >
               Confirmer
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modale de suppression : exige de taper SUPPRIMER */}
+      <Modal
+        open={deleteModal}
+        onClose={() => setDeleteModal(false)}
+        title="Supprimer définitivement ce deal"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="card p-4 bg-red-50 border-red-200 flex items-start gap-3">
+            <AlertTriangleIcon className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-900">
+              Cette action est <strong>irréversible</strong>. Toutes les données du deal
+              (bids, NDAs, photos, documents, logements, Q&amp;R) seront définitivement
+              effacées. Préférez l'archivage si vous voulez juste retirer le deal de la
+              marketplace.
+            </p>
+          </div>
+          <Input
+            label="Tape SUPPRIMER pour confirmer"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="SUPPRIMER"
+            autoComplete="off"
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setDeleteModal(false)}
+              className="btn-secondary"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => deleteMut.mutate()}
+              disabled={deleteConfirmText !== 'SUPPRIMER' || deleteMut.isPending}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="h-4 w-4" />
+              {deleteMut.isPending ? '...' : 'Supprimer définitivement'}
             </button>
           </div>
         </div>

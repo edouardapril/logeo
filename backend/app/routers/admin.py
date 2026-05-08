@@ -1,8 +1,9 @@
+import logging
 import uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, delete
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.deal import Deal, DealStatus
@@ -11,7 +12,10 @@ from app.models.payment import Payment, PaymentType, PaymentState
 from app.models.nda import NDA
 from app.models.deal_question import DealQuestion
 from app.models.deal_review import DealReview
+from app.models.deal_unit import DealUnit
+from app.models.email_log import EmailLog
 from app.models.sanction import UserSanction
+from app.services import storage as storage_svc
 from app.schemas.user import UserAdminView, UserQualifyRequest
 from app.schemas.deal import DealAdminView, DealVerdict, DealListItem
 from app.schemas.bid import BidAdminView, InteracConfirm
@@ -34,6 +38,7 @@ from app.database import AsyncSessionLocal
 from app.config import get_settings
 
 settings = get_settings()
+log = logging.getLogger("logeo.admin")
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
@@ -88,12 +93,15 @@ async def toggle_user(
 @router.get("/deals", response_model=list[DealListItem])
 async def list_deals(
     status: DealStatus | None = None,
+    include_archived: bool = Query(default=True),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Deal)
     if status:
         query = query.where(Deal.status == status)
+    if not include_archived:
+        query = query.where(Deal.archived_at.is_(None))
     result = await db.execute(query.order_by(Deal.created_at.desc()))
     deals = result.scalars().all()
     status_filter = status.value if status else "ALL"
@@ -106,13 +114,20 @@ async def list_deals(
 @router.get("/deals/enriched", response_model=list[DealAdminListItem])
 async def list_deals_enriched(
     status: DealStatus | None = None,
+    include_archived: bool = Query(default=True),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Liste deals + compteurs (bids, NDAs, FAQ sans réponse)."""
+    """Liste deals + compteurs (bids, NDAs, FAQ sans réponse).
+
+    `include_archived=true` (défaut) : tous les deals incluant les archivés.
+    `include_archived=false` : uniquement les deals actifs (archived_at IS NULL).
+    """
     q = select(Deal)
     if status:
         q = q.where(Deal.status == status)
+    if not include_archived:
+        q = q.where(Deal.archived_at.is_(None))
     q = q.order_by(Deal.created_at.desc())
     deals = (await db.execute(q)).scalars().all()
 
@@ -163,6 +178,7 @@ async def list_deals_enriched(
             property_type=d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
             city=d.city, floor_price=d.floor_price,
             bid_close_at=d.bid_close_at, created_at=d.created_at,
+            archived_at=d.archived_at,
             bids_count=bids_count_map.get(d.id, 0),
             ndas_count=ndas_count_map.get(d.id, 0),
             unanswered_questions_count=unanswered_map.get(d.id, 0),
@@ -238,6 +254,174 @@ async def verdict(
         raise HTTPException(status_code=400, detail="verdict doit être 'go' ou 'nogo'")
 
     return {"status": deal.status}
+
+
+# ── Archivage / désarchivage / suppression hard ──────────────────────────────
+
+@router.post("/deals/{deal_id}/archive", response_model=DealAdminView)
+async def archive_deal(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archive un deal — invisible côté acheteur/courtier (hors propriétaire),
+    récupérable via unarchive. Idempotence partielle : 409 si déjà archivé."""
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    if deal.archived_at is not None:
+        raise HTTPException(status_code=409, detail="Deal déjà archivé")
+
+    deal.archived_at = datetime.now(timezone.utc)
+    await db.flush()
+    log.info(
+        "deal_archived deal_id=%s admin_id=%s admin_email=%s",
+        deal_id, current_user.id, current_user.email,
+    )
+
+    courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+    courtier = courtier_res.scalar_one()
+    return {
+        **deal.__dict__,
+        "courtier_name": courtier.full_name,
+        "courtier_email": courtier.email,
+        "courtier_phone": courtier.phone,
+        "agency_name": courtier.agency_name,
+    }
+
+
+@router.post("/deals/{deal_id}/unarchive", response_model=DealAdminView)
+async def unarchive_deal(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restaure un deal archivé. 409 si non archivé."""
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    if deal.archived_at is None:
+        raise HTTPException(status_code=409, detail="Deal non archivé")
+
+    deal.archived_at = None
+    await db.flush()
+    log.info(
+        "deal_unarchived deal_id=%s admin_id=%s admin_email=%s",
+        deal_id, current_user.id, current_user.email,
+    )
+
+    courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+    courtier = courtier_res.scalar_one()
+    return {
+        **deal.__dict__,
+        "courtier_name": courtier.full_name,
+        "courtier_email": courtier.email,
+        "courtier_phone": courtier.phone,
+        "agency_name": courtier.agency_name,
+    }
+
+
+def _collect_deal_storage_paths(deal: Deal) -> list[str]:
+    """Liste tous les paths stockage attachés à un deal — pour cleanup post-delete."""
+    paths: list[str] = []
+    for p in (deal.photo_paths or []):
+        if p: paths.append(p)
+    for p in (deal.teaser_photo_paths or []):
+        if p: paths.append(p)
+    if deal.teaser_photo_path:
+        paths.append(deal.teaser_photo_path)
+    if deal.full_report_path:
+        paths.append(deal.full_report_path)
+    if deal.inspection_report_path:
+        paths.append(deal.inspection_report_path)
+    for p in (deal.documents or {}).values():
+        if p: paths.append(p)
+    return paths
+
+
+@router.delete("/deals/{deal_id}", status_code=204)
+async def delete_deal(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hard delete d'un deal et de toutes ses dépendances directes.
+
+    Ordre : payments → bids → ndas → email_logs → sanctions.related_deal_id
+    (NULL) → deal (cascade DB sur deal_questions, deal_reviews, deal_units +
+    units enfants via leur propre CASCADE). Best-effort cleanup du storage.
+
+    Action irréversible — pas de retour en arrière une fois committed.
+    """
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    storage_paths = _collect_deal_storage_paths(deal)
+    # Inclure aussi les paths des units (photos + bail) — supprimés côté DB par
+    # CASCADE, mais le storage doit être nettoyé manuellement.
+    units_res = await db.execute(select(DealUnit).where(DealUnit.deal_id == deal_id))
+    for u in units_res.scalars():
+        for p in (u.photo_paths or []):
+            if p: storage_paths.append(p)
+        if u.lease_path:
+            storage_paths.append(u.lease_path)
+    # NDA PDFs (best-effort)
+    nda_res = await db.execute(select(NDA).where(NDA.deal_id == deal_id))
+    for n in nda_res.scalars():
+        if n.pdf_path:
+            storage_paths.append(n.pdf_path)
+    # Bid watermarked PDFs
+    bid_res = await db.execute(select(Bid).where(Bid.deal_id == deal_id))
+    for b in bid_res.scalars():
+        if b.watermarked_path:
+            storage_paths.append(b.watermarked_path)
+
+    # ── Suppressions DB séquentielles (FKs sans ondelete=CASCADE) ────────────
+    # Payments d'abord (FK sur deal_id ET bid_id)
+    await db.execute(delete(Payment).where(Payment.deal_id == deal_id))
+    # Puis bids (libère les FK sur bid.id)
+    await db.execute(delete(Bid).where(Bid.deal_id == deal_id))
+    # NDAs
+    await db.execute(delete(NDA).where(NDA.deal_id == deal_id))
+    # Email logs : FK nullable → on NULL pour garder l'audit trail email
+    await db.execute(
+        EmailLog.__table__.update()
+        .where(EmailLog.deal_id == deal_id)
+        .values(deal_id=None)
+    )
+    # Sanctions : related_deal_id nullable → on NULL pour préserver l'historique
+    # disciplinaire (la sanction reste, le lien deal disparaît)
+    await db.execute(
+        UserSanction.__table__.update()
+        .where(UserSanction.related_deal_id == deal_id)
+        .values(related_deal_id=None)
+    )
+    # Le deal lui-même — CASCADE DB nettoie deal_questions, deal_reviews,
+    # deal_units (et les unités cascadent vers leurs enfants si nécessaire).
+    await db.execute(delete(Deal).where(Deal.id == deal_id))
+    await db.flush()
+
+    log.warning(
+        "deal_deleted deal_id=%s admin_id=%s admin_email=%s "
+        "city=%s status=%s storage_paths=%d",
+        deal_id, current_user.id, current_user.email,
+        deal.city, deal.status,
+        len(storage_paths),
+    )
+
+    # Cleanup storage best-effort — ne pas faire échouer le DELETE si le
+    # bucket est inaccessible.
+    for p in storage_paths:
+        try:
+            storage_svc.delete(p)
+        except Exception:
+            pass
+
+    return Response(status_code=204)
 
 
 # ── Gestion des bids ──────────────────────────────────────────────────────────

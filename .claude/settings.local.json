@@ -20,7 +20,8 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(python *)",
-      "Bash(node -e \"const fs=require\\('fs'\\);['src/pages/courtier/CourtierDashboard.jsx','src/pages/courtier/CourtierDealDetail.jsx','src/pages/acheteur/DealList.jsx','src/pages/public/HowItWorks.jsx','src/api/acheteur.js','src/api/courtier.js'].forEach\\(p=>{try{require\\('@babel/parser'\\).parse\\(fs.readFileSync\\(p,'utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK',p\\)}catch\\(e\\){console.error\\('FAIL',p,e.message\\)}}\\)\")"
+      "Bash(node -e \"const fs=require\\('fs'\\);['src/pages/courtier/CourtierDashboard.jsx','src/pages/courtier/CourtierDealDetail.jsx','src/pages/acheteur/DealList.jsx','src/pages/public/HowItWorks.jsx','src/api/acheteur.js','src/api/courtier.js'].forEach\\(p=>{try{require\\('@babel/parser'\\).parse\\(fs.readFileSync\\(p,'utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK',p\\)}catch\\(e\\){console.error\\('FAIL',p,e.message\\)}}\\)\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

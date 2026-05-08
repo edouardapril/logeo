@@ -39,6 +39,7 @@ class DealAdminListItem(BaseModel):
     floor_price: int | None = None
     bid_close_at: datetime | None
     created_at: datetime
+    archived_at: datetime | None = None
     bids_count: int = 0
     ndas_count: int = 0
     unanswered_questions_count: int = 0

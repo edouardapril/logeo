@@ -43,7 +43,8 @@ async def _get_active_deal(deal_id: uuid.UUID, db: AsyncSession) -> Deal:
     result = await db.execute(
         select(Deal).where(
             Deal.id == deal_id,
-            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed])
+            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.archived_at.is_(None),
         )
     )
     deal = result.scalar_one_or_none()
@@ -69,7 +70,10 @@ async def list_available_deals(
     db: AsyncSession = Depends(get_db),
 ):
     _require_qualified(current_user)
-    query = select(Deal).where(Deal.status.in_([DealStatus.bid]))
+    query = select(Deal).where(
+        Deal.status.in_([DealStatus.bid]),
+        Deal.archived_at.is_(None),
+    )
     if region:
         query = query.where(Deal.region == region)
     if property_type:
@@ -91,7 +95,11 @@ async def list_active_regions(
     _require_qualified(current_user)
     res = await db.execute(
         select(Deal.region, func.count(Deal.id))
-        .where(Deal.status == DealStatus.bid, Deal.region.isnot(None))
+        .where(
+            Deal.status == DealStatus.bid,
+            Deal.region.isnot(None),
+            Deal.archived_at.is_(None),
+        )
         .group_by(Deal.region)
         .order_by(Deal.region.asc())
     )

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Clock4, ShieldCheck, MessageSquare, Trophy, Pencil, Filter, X } from 'lucide-react'
+import { Clock4, ShieldCheck, MessageSquare, Trophy, Pencil, Filter, X, Archive } from 'lucide-react'
 import {
   adminListDealsEnrichedApi, extendBidCloseApi,
 } from '../../api/admin'
@@ -35,16 +35,16 @@ export default function AdminDeals() {
   const [status, setStatus] = useState('analyse')
   const [location, setLocation] = useState({ region: '', mrc: '', city: '' })
   const [dateFrom, setDateFrom] = useState('')
+  const [includeArchived, setIncludeArchived] = useState(false)
   const [extendModal, setExtendModal] = useState(null)  // { dealId, currentClose }
   const [newCloseAt, setNewCloseAt] = useState('')
 
   const { data: dealsRaw, isLoading } = useQuery({
-    queryKey: ['admin', 'deals-enriched', status],
+    queryKey: ['admin', 'deals-enriched', status, includeArchived],
     queryFn: async () => {
-      const data = await adminListDealsEnrichedApi(status || undefined)
-      // Diagnostic — visible dans la console du navigateur
+      const data = await adminListDealsEnrichedApi(status || undefined, includeArchived)
       console.log(
-        `[AdminDeals] GET /admin/deals/enriched?status=${status || 'ALL'} →`,
+        `[AdminDeals] GET /admin/deals/enriched?status=${status || 'ALL'}&include_archived=${includeArchived} →`,
         Array.isArray(data) ? `${data.length} deal(s)` : data,
         data,
       )
@@ -91,6 +91,20 @@ export default function AdminDeals() {
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Tous les deals</h1>
       <p className="text-sm text-gray-600 mb-6">Compteurs en temps réel · refresh 30s</p>
+
+      {/* Toggle inclure archivés */}
+      <div className="flex items-center gap-2 mb-3">
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(e) => setIncludeArchived(e.target.checked)}
+            className="rounded border-gray-300"
+          />
+          <Archive className="h-3.5 w-3.5 text-gray-500" />
+          Inclure les deals archivés
+        </label>
+      </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         {STATUSES.map(s => {
@@ -167,11 +181,18 @@ export default function AdminDeals() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {deals?.map(d => (
-                <tr key={d.id} className="hover:bg-gray-50">
+                <tr key={d.id} className={`hover:bg-gray-50 ${d.archived_at ? 'opacity-60' : ''}`}>
                   <td className="px-4 py-3">
-                    <Link to={`/admin/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
-                      {PROPERTY_TYPE_LABELS[d.property_type] || d.property_type}
-                    </Link>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link to={`/admin/deals/${d.id}`} className="font-medium text-gray-900 hover:text-[#EA580C]">
+                        {PROPERTY_TYPE_LABELS[d.property_type] || d.property_type}
+                      </Link>
+                      {d.archived_at && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-gray-200 text-gray-700">
+                          <Archive className="h-2.5 w-2.5" /> Archivé
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500">
                       {d.city}{d.region && <span className="text-gray-400"> · {regionLabel(d.region)}</span>}
                     </p>
