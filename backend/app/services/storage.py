@@ -46,7 +46,45 @@ def _safe_filename(filename: str) -> str:
 
 
 def _is_supabase() -> bool:
-    return settings.storage_backend == "supabase" and bool(settings.supabase_url)
+    """Vrai ssi le backend est configuré pour Supabase Storage.
+
+    Lit en priorité `settings` (cache lru). Fallback `os.getenv` au cas où
+    pydantic-settings n'aurait pas chargé l'env var (rare : import order
+    bizarre, .env file shadow, etc.). Le fallback ne change rien si la
+    config est cohérente — c'est juste une assurance contre la cause (a)
+    du spec ("env var lue trop tôt").
+    """
+    backend = settings.storage_backend or os.getenv("STORAGE_BACKEND", "")
+    url = settings.supabase_url or os.getenv("SUPABASE_URL", "")
+    key = settings.supabase_service_key or os.getenv("SUPABASE_SERVICE_KEY", "")
+    return backend == "supabase" and bool(url) and bool(key)
+
+
+# Log de diagnostic au chargement du module — visible dans `railway logs` ou
+# `uvicorn` au démarrage. Permet de repérer immédiatement une config storage
+# brisée en prod (cause habituelle des photos qui n'apparaissent pas).
+if settings.storage_backend == "supabase" and not (
+    settings.supabase_url and settings.supabase_service_key
+):
+    log.error(
+        "STORAGE_BACKEND=supabase mais SUPABASE_URL ou SUPABASE_SERVICE_KEY manquant. "
+        "Les uploads écriront sur le filesystem local — fichiers perdus à chaque redéploiement."
+    )
+elif settings.storage_backend == "local":
+    log.warning(
+        "STORAGE_BACKEND=local — uploads écrits sur le filesystem local. "
+        "En prod (Railway/Render), les fichiers seront perdus à chaque redéploiement. "
+        "Configurez STORAGE_BACKEND=supabase + SUPABASE_URL + SUPABASE_SERVICE_KEY."
+    )
+else:
+    log.info(
+        "Storage : backend=%s · supabase_url_set=%s · buckets=(%s, %s, %s)",
+        settings.storage_backend,
+        bool(settings.supabase_url),
+        settings.supabase_bucket_deals,
+        settings.supabase_bucket_documents,
+        settings.supabase_bucket_profiles,
+    )
 
 
 def _supabase_headers() -> dict:
@@ -79,6 +117,11 @@ def save(content: bytes, filename: str, kind: str, subfolder: str = "",
 
     if _is_supabase():
         bucket = _bucket(kind)
+        # Log explicite — visible dans Railway logs pour confirmer en live
+        # que les uploads passent bien par Supabase. Sans ce log, impossible
+        # de différencier "config OK + bucket cassé" et "config local"
+        # une fois en prod.
+        log.info("storage.save SUPABASE bucket=%s key=%s size=%d", bucket, rel_key, len(content))
         url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{rel_key}"
         headers = _supabase_headers() | {
             "Content-Type": content_type,
@@ -88,11 +131,18 @@ def save(content: bytes, filename: str, kind: str, subfolder: str = "",
             r = httpx.post(url, headers=headers, content=content, timeout=30.0)
             r.raise_for_status()
         except httpx.HTTPError as e:
-            log.error("Supabase upload failed: %s", e)
+            log.error("Supabase upload failed: bucket=%s key=%s err=%s", bucket, rel_key, e)
             raise
         return f"{bucket}/{rel_key}"
 
-    # Local fallback
+    # Local fallback — log un warning à chaque upload local, pour qu'on voie
+    # immédiatement en prod si la config storage est incorrecte.
+    log.warning(
+        "storage.save LOCAL backend=%r supabase_url_set=%s key=%s — "
+        "STORAGE_BACKEND=supabase + SUPABASE_URL + SUPABASE_SERVICE_KEY non configurés correctement. "
+        "Le fichier ira sur le filesystem et sera perdu au prochain redéploiement.",
+        settings.storage_backend, bool(settings.supabase_url), rel_key,
+    )
     folder = os.path.join(LOCAL_DIR, sub) if sub else LOCAL_DIR
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, safe).replace("\\", "/")
@@ -136,7 +186,15 @@ def public_url(path: str) -> str:
 
 
 def signed_url(path: str, expires_in: int | None = None) -> str:
-    """Signed URL côté Supabase ; côté local on retombe sur public_url."""
+    """Signed URL côté Supabase ; côté local on retombe sur public_url.
+
+    Raison du défensif (LOTPLOT 9) : selon la version du runtime Supabase,
+    la réponse contient `signedURL` (legacy), `signedUrl` (v2 récent) ou
+    `url` (v3+). Si on rate les trois, on logguait une chaîne vide qui
+    cassait silencieusement les <img>. On capture explicitement ce cas
+    et on bascule sur `public_url(path)` (qui renverra une URL 401/403
+    visible si le bucket est privé — préférable à un <img src=""> muet).
+    """
     sb = _split_supabase(path)
     if not sb:
         return public_url(path)
@@ -147,13 +205,29 @@ def signed_url(path: str, expires_in: int | None = None) -> str:
         r = httpx.post(url, headers=_supabase_headers(),
                        json={"expiresIn": ttl}, timeout=15.0)
         r.raise_for_status()
-        data = r.json()
-        signed = data.get("signedURL") or data.get("signedUrl") or ""
+        data = r.json() if r.content else {}
+        # Tolère les 3 noms de clés rencontrés selon les versions Supabase.
+        signed = (
+            data.get("signedURL")
+            or data.get("signedUrl")
+            or data.get("url")
+            or ""
+        )
+        if not signed:
+            log.error(
+                "Supabase signed_url: réponse sans clé signedURL/signedUrl/url. "
+                "bucket=%s key=%s status=%s body=%r",
+                bucket, key, r.status_code, data,
+            )
+            return public_url(path)
         if signed.startswith("/"):
             signed = f"{settings.supabase_url}/storage/v1{signed}"
         return signed
     except httpx.HTTPError as e:
-        log.error("Supabase signed_url failed: %s", e)
+        log.error(
+            "Supabase signed_url failed: bucket=%s key=%s err=%s",
+            bucket, key, e,
+        )
         return public_url(path)
 
 

@@ -209,17 +209,20 @@ export default function CourtierDealDetail() {
         />
       </div>
 
-      {/* Fiche partagée — visuel acheteur post-NDA, sections rôle-aware */}
+      {/* Fiche partagée — visuel acheteur post-NDA, sections rôle-aware.
+          Slideshow photos rendu ici (placement standard, identique au admin/
+          acheteur post-NDA). Le panel courtier-spécifique ci-dessous gère la
+          sélection cover/secondaires (outil métier, séparé du visuel). */}
       <div id="fiche-edit">
         <DealFiche
           deal={deal}
           permissions={{
-            canSeeAddress: true,        // owner voit son adresse
+            canSeeAddress: true,
             canSeeFinancials: true,
-            canSeePhotos: false,        // gérées par le panel courtier-spécifique ci-dessous
+            canSeePhotos: true,         // slideshow visible — même placement que les autres rôles
             canSeeCourtier: false,      // pas de bloc « courtier » à soi-même
             canSeeDocuments: true,
-            canSeeAdminMeta: true,      // frais Logeo applicables
+            canSeeAdminMeta: true,
           }}
         />
       </div>

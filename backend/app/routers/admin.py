@@ -1,4 +1,5 @@
 import logging
+import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -389,6 +390,166 @@ async def verdict(
 
 
 # ── Archivage / désarchivage / suppression hard ──────────────────────────────
+
+# ── Diagnostic storage (LOTPLOT 11) ──────────────────────────────────────────
+# Endpoint live pour voir EXACTEMENT ce que le backend lit comme config storage
+# au moment de la requête, et vérifier que `_is_supabase()` retourne True.
+# Effectue aussi un upload de test (10 octets) qui révèle la branche prise et
+# le path retourné — réplique directement le bug s'il existe.
+
+@router.get("/storage-diag")
+async def storage_diag(
+    test_upload: bool = Query(default=False, description="Si true, fait un upload de test de 10 octets dans le bucket documents/_storage_diag/"),
+    current_user: User = Depends(require_admin),
+):
+    """Diagnostic live de la config storage. Retourne :
+
+      - settings.* : valeurs lues par pydantic-settings (cache lru)
+      - os.getenv.*: valeurs lues à l'instant via os.environ (au cas où le
+        cache pydantic serait stale)
+      - is_supabase : verdict de `_is_supabase()` — True = uploads vont vers
+        Supabase, False = uploads vont sur le filesystem local
+      - test_upload : si activé, exécute un vrai save() de 10 octets et retourne
+        le path obtenu. Si le path commence par `documents/...` → Supabase OK.
+        Si le path commence par `uploads/...` → backend tombe en local.
+
+    Quand un upload "vrai" retourne un path uploads/..., consulter cet endpoint
+    montre immédiatement laquelle des deux config (settings vs env direct) est
+    cassée et pourquoi.
+    """
+    out = {
+        "from_settings": {
+            "storage_backend": settings.storage_backend,
+            "supabase_url": settings.supabase_url or "<empty>",
+            "supabase_service_key_set": bool(settings.supabase_service_key),
+            "buckets": {
+                "deals": settings.supabase_bucket_deals,
+                "documents": settings.supabase_bucket_documents,
+                "profiles": settings.supabase_bucket_profiles,
+            },
+            "signed_url_ttl_seconds": settings.signed_url_ttl_seconds,
+            "backend_url": settings.backend_url,
+        },
+        "from_os_environ": {
+            "STORAGE_BACKEND": os.environ.get("STORAGE_BACKEND") or "<unset>",
+            "SUPABASE_URL": os.environ.get("SUPABASE_URL") or "<unset>",
+            "SUPABASE_SERVICE_KEY_set": bool(os.environ.get("SUPABASE_SERVICE_KEY")),
+            "SUPABASE_BUCKET_DEALS": os.environ.get("SUPABASE_BUCKET_DEALS") or "<unset>",
+            "SUPABASE_BUCKET_DOCUMENTS": os.environ.get("SUPABASE_BUCKET_DOCUMENTS") or "<unset>",
+            "SUPABASE_BUCKET_PROFILES": os.environ.get("SUPABASE_BUCKET_PROFILES") or "<unset>",
+        },
+        "is_supabase": storage_svc._is_supabase(),
+    }
+
+    if test_upload:
+        try:
+            test_path = storage_svc.save(
+                content=b"diag_probe",
+                filename="probe.txt",
+                kind=storage_svc.KIND_DOCUMENTS,
+                subfolder="_storage_diag",
+                content_type="text/plain",
+            )
+            out["test_upload"] = {
+                "path_returned": test_path,
+                "branch_taken": "supabase" if not test_path.startswith("uploads/") else "local",
+            }
+            # Cleanup best-effort
+            try:
+                storage_svc.delete(test_path)
+                out["test_upload"]["cleanup"] = "ok"
+            except Exception as e:
+                out["test_upload"]["cleanup"] = f"failed: {e}"
+        except Exception as e:
+            out["test_upload"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return out
+
+
+# ── Diagnostic photos (LOTPLOT 9) ───────────────────────────────────────────
+
+@router.get("/deals/{deal_id}/photo-debug")
+async def deal_photo_debug(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Diagnostic complet pour identifier pourquoi les photos d'un deal
+    n'apparaissent pas. Retourne, pour chaque path stocké en DB :
+
+      - raw : valeur brute en colonne JSON
+      - parsed : (bucket, key) si reconnu comme path Supabase, sinon None
+      - signed_url : tentative de génération signed URL (Supabase POST sign)
+        — diagnostique en vrai dans cette requête
+      - public_url : fallback URL publique calculée (utilisée si signed échoue)
+      - http_head_status : statut HTTP retourné par un HEAD sur la signed URL
+        (200 = la photo est lisible ; 401/403/404 = problème accessibilité bucket)
+
+    Inclut aussi la config storage au moment de la requête pour confirmer
+    que l'env var STORAGE_BACKEND est bien `supabase`.
+    """
+    res = await db.execute(select(Deal).where(Deal.id == deal_id))
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    import httpx as _httpx
+
+    def diag_path(p):
+        if not p:
+            return {"raw": p, "note": "empty"}
+        parsed = storage_svc._split_supabase(p)
+        signed = storage_svc.signed_url(p)
+        public = storage_svc.public_url(p)
+        http_status = None
+        try:
+            h = _httpx.head(signed, timeout=8.0, follow_redirects=True)
+            http_status = h.status_code
+        except Exception as e:
+            http_status = f"error: {type(e).__name__}: {e}"
+        return {
+            "raw": p,
+            "parsed": (parsed[0], parsed[1]) if parsed else None,
+            "signed_url": signed,
+            "public_url": public,
+            "head_status": http_status,
+        }
+
+    photos = [diag_path(p) for p in (deal.photo_paths or [])]
+    teasers = [diag_path(p) for p in (deal.teaser_photo_paths or [])]
+    teaser_legacy = diag_path(deal.teaser_photo_path) if deal.teaser_photo_path else None
+    full_report = diag_path(deal.full_report_path) if deal.full_report_path else None
+    documents = {
+        k: diag_path(v) for k, v in (deal.documents or {}).items() if v
+    }
+
+    return {
+        "deal_id": str(deal_id),
+        "city": deal.city,
+        "storage_config": {
+            "backend": settings.storage_backend,
+            "supabase_url_set": bool(settings.supabase_url),
+            "supabase_service_key_set": bool(settings.supabase_service_key),
+            "buckets": {
+                "deals": settings.supabase_bucket_deals,
+                "documents": settings.supabase_bucket_documents,
+                "profiles": settings.supabase_bucket_profiles,
+            },
+            "signed_url_ttl_seconds": settings.signed_url_ttl_seconds,
+        },
+        "photo_paths": {
+            "count": len(deal.photo_paths or []),
+            "items": photos,
+        },
+        "teaser_photo_paths": {
+            "count": len(deal.teaser_photo_paths or []),
+            "items": teasers,
+        },
+        "teaser_photo_path_legacy": teaser_legacy,
+        "full_report_path": full_report,
+        "documents": documents,
+    }
+
 
 @router.post("/deals/{deal_id}/archive", response_model=DealAdminView)
 async def archive_deal(
