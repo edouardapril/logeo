@@ -49,6 +49,9 @@ log = logging.getLogger(__name__)
 print(f"[STORAGE INIT] settings.storage_backend (pydantic) = {settings.storage_backend!r}", flush=True, file=sys.stderr)
 print(f"[STORAGE INIT] settings.supabase_url     (pydantic) = {settings.supabase_url!r}", flush=True, file=sys.stderr)
 print(f"[STORAGE INIT] settings.supabase_service_key (pydantic, set?) = {bool(settings.supabase_service_key)}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] settings.supabase_bucket_deals     (pydantic) = {settings.supabase_bucket_deals!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] settings.supabase_bucket_documents (pydantic) = {settings.supabase_bucket_documents!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] settings.supabase_bucket_profiles  (pydantic) = {settings.supabase_bucket_profiles!r}", flush=True, file=sys.stderr)
 print("=" * 70, flush=True, file=sys.stderr)
 
 LOCAL_DIR = "uploads"
@@ -186,6 +189,14 @@ def save(content: bytes, filename: str, kind: str, subfolder: str = "",
 
 # ── Lecture ───────────────────────────────────────────────────────────────────
 
+# Noms canoniques des buckets — utilisés en fallback si settings.supabase_bucket_*
+# sont mal configurés (env var avec guillemets, vide, typo). Le save() utilise
+# settings.supabase_bucket_* (qui peut être custom), mais la reconnaissance au
+# read() accepte ET les noms custom des settings ET ces noms canoniques. Évite
+# qu'un path stocké en DB devienne irrécupérable suite à une régression env.
+_CANONICAL_BUCKETS = {"deals", "documents", "profiles"}
+
+
 def _split_supabase(path: str) -> tuple[str, str] | None:
     """Renvoie (bucket, key) si le path correspond à un bucket Supabase connu, sinon None."""
     if not path:
@@ -198,36 +209,50 @@ def _split_supabase(path: str) -> tuple[str, str] | None:
         settings.supabase_bucket_deals,
         settings.supabase_bucket_documents,
         settings.supabase_bucket_profiles,
-    }
+    } | _CANONICAL_BUCKETS
     if head in known_buckets and "/" in p:
         bucket, key = p.split("/", 1)
         return (bucket, key)
     return None
 
 
-def public_url(path: str) -> str:
-    """URL publique (bucket public Supabase ou route /uploads/* locale)."""
+def public_url(path: str | None) -> str | None:
+    """URL publique d'un fichier stocké.
+
+    - Path Supabase (`<bucket>/<key>`) → URL publique Supabase directe.
+    - Path legacy `uploads/...` → None. Sur Railway le filesystem est éphémère ;
+      ces fichiers ont été perdus au dernier redéploiement. On retourne None
+      plutôt qu'une URL ghost `https://api.logeo.ca/uploads/...` qui 404.
+    - Path inconnu → None (safer than guess).
+    """
+    if not path:
+        return None
+    p = path.replace("\\", "/").lstrip("/")
+    if p.startswith("uploads/"):
+        return None
     sb = _split_supabase(path)
     if sb:
         bucket, key = sb
         return f"{settings.supabase_url}/storage/v1/object/public/{bucket}/{key}"
-    # local
-    p = path.replace("\\", "/").lstrip("/")
-    if not p.startswith("uploads/"):
-        p = f"uploads/{p}"
-    return f"{settings.backend_url}/{p}"
+    return None
 
 
-def signed_url(path: str, expires_in: int | None = None) -> str:
-    """Signed URL côté Supabase ; côté local on retombe sur public_url.
+def signed_url(path: str | None, expires_in: int | None = None) -> str | None:
+    """Signed URL Supabase pour un path stocké.
 
-    Raison du défensif (LOTPLOT 9) : selon la version du runtime Supabase,
-    la réponse contient `signedURL` (legacy), `signedUrl` (v2 récent) ou
-    `url` (v3+). Si on rate les trois, on logguait une chaîne vide qui
-    cassait silencieusement les <img>. On capture explicitement ce cas
-    et on bascule sur `public_url(path)` (qui renverra une URL 401/403
-    visible si le bucket est privé — préférable à un <img src=""> muet).
+    - Path Supabase reconnu → POST /storage/v1/object/sign/<bucket>/<key> →
+      URL signée valide `expires_in` secondes. Tolère les 3 noms de clé de
+      réponse rencontrés selon les versions Supabase (signedURL/signedUrl/url).
+    - Path legacy `uploads/...` → None (fichier perdu en prod, voir public_url).
+    - Échec réseau ou réponse Supabase inattendue → fallback public_url() (qui
+      retournera une URL public/ — 401/403 visible si bucket privé, plutôt
+      qu'un <img src=""> silencieux).
     """
+    if not path:
+        return None
+    p = path.replace("\\", "/").lstrip("/")
+    if p.startswith("uploads/"):
+        return None
     sb = _split_supabase(path)
     if not sb:
         return public_url(path)
@@ -239,7 +264,6 @@ def signed_url(path: str, expires_in: int | None = None) -> str:
                        json={"expiresIn": ttl}, timeout=15.0)
         r.raise_for_status()
         data = r.json() if r.content else {}
-        # Tolère les 3 noms de clés rencontrés selon les versions Supabase.
         signed = (
             data.get("signedURL")
             or data.get("signedUrl")
@@ -304,33 +328,41 @@ def read(path: str) -> bytes:
 # brut — la transformation est purement un step de sérialisation.
 
 def to_public_url(path: str | None) -> str | None:
-    """Path bucket public (deals) → URL publique directe."""
+    """Path bucket public (deals) → URL publique directe, ou None si legacy."""
     return public_url(path) if path else None
 
 
 def to_public_urls(paths: list | None) -> list[str] | None:
-    """Liste de paths publics → liste d'URLs publiques."""
+    """Liste de paths publics → liste d'URLs publiques.
+
+    Filtre les None : un path legacy `uploads/...` produit None via public_url
+    (fichier perdu) ; on l'omet du résultat plutôt que de retourner [None,...]
+    qui ferait apparaître des images cassées côté frontend.
+    """
     if not paths:
         return None
-    return [public_url(p) for p in paths if p]
+    urls = [public_url(p) for p in paths if p]
+    return [u for u in urls if u]
 
 
 def to_signed_url(path: str | None) -> str | None:
-    """Path bucket privé (documents, profiles) → signed URL avec TTL."""
+    """Path bucket privé (documents, profiles) → signed URL avec TTL, ou None si legacy."""
     return signed_url(path) if path else None
 
 
 def to_signed_urls(paths: list | None) -> list[str] | None:
-    """Liste de paths privés → liste de signed URLs."""
+    """Liste de paths privés → liste de signed URLs (None filtrés)."""
     if not paths:
         return None
-    return [signed_url(p) for p in paths if p]
+    urls = [signed_url(p) for p in paths if p]
+    return [u for u in urls if u]
 
 
 def to_signed_url_values(d: dict | None) -> dict | None:
     """Transforme les VALEURS d'un dict en signed URLs (clés intactes).
 
     Utilisé pour le champ Deal.documents = {"baux": "documents/...", "taxes": "..."}.
+    Les valeurs legacy `uploads/...` deviennent None plutôt qu'une URL ghost.
     """
     if not d:
         return None
