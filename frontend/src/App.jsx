@@ -18,8 +18,10 @@ import AdminRevenues from './pages/admin/AdminRevenues'
 import CourtierDashboard from './pages/courtier/CourtierDashboard'
 import SubmitDeal from './pages/courtier/SubmitDeal'
 import CourtierDealDetail from './pages/courtier/CourtierDealDetail'
+import CourtierMarketplace from './pages/courtier/CourtierMarketplace'
 import Convention from './pages/courtier/Convention'
 
+import AcheteurDashboard from './pages/acheteur/AcheteurDashboard'
 import DealList from './pages/acheteur/DealList'
 import DealDetail from './pages/acheteur/DealDetail'
 import PaiementPage from './pages/acheteur/PaiementPage'
@@ -48,7 +50,7 @@ function RoleRedirect() {
   if (!user) return <Login />
   if (user.role === 'admin') return <Navigate to="/admin" replace />
   if (user.role === 'courtier') return <Navigate to="/courtier" replace />
-  return <Navigate to="/acheteur/deals" replace />
+  return <Navigate to="/acheteur" replace />
 }
 
 export default function App() {
@@ -80,6 +82,7 @@ export default function App() {
         <Route element={<ProtectedRoute roles={['courtier']} />}>
           <Route element={<Layout />}>
             <Route path="/courtier" element={<CourtierDashboard />} />
+            <Route path="/courtier/marketplace" element={<CourtierMarketplace />} />
             <Route path="/courtier/submit" element={<SubmitDeal />} />
             <Route path="/courtier/deals/:dealId" element={<CourtierDealDetail />} />
             <Route path="/courtier/convention" element={<Convention />} />
@@ -89,6 +92,7 @@ export default function App() {
         {/* Acheteur */}
         <Route element={<ProtectedRoute roles={['acheteur']} />}>
           <Route element={<Layout />}>
+            <Route path="/acheteur" element={<AcheteurDashboard />} />
             <Route path="/acheteur/deals" element={<DealList />} />
             <Route path="/acheteur/deals/:dealId" element={<DealDetail />} />
             <Route path="/acheteur/paiement" element={<PaiementPage />} />

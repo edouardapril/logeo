@@ -18,10 +18,12 @@ const NAV_BY_ROLE = {
     { to: '/admin/sanctions', label: 'Sanctions',         icon: ShieldOff },
   ],
   courtier: [
-    { to: '/courtier',         label: 'Mes deals',         icon: Building2 },
-    { to: '/courtier/submit',  label: 'Soumettre un deal', icon: Plus },
+    { to: '/courtier',             label: 'Tableau de bord',   icon: LayoutDashboard },
+    { to: '/courtier/marketplace', label: 'Marketplace',       icon: Search },
+    { to: '/courtier/submit',      label: 'Soumettre un deal', icon: Plus },
   ],
   acheteur: [
+    { to: '/acheteur',              label: 'Tableau de bord',   icon: LayoutDashboard },
     { to: '/acheteur/deals',        label: 'Deals disponibles', icon: Search },
     { to: '/acheteur/mes-encheres', label: 'Mes enchères',      icon: Trophy },
     { to: '/acheteur/paiement',     label: 'Paiement',          icon: CreditCard },
@@ -111,7 +113,7 @@ export default function Layout() {
             <NavLink
               key={to}
               to={to}
-              end={to === '/admin' || to === '/courtier'}
+              end={to === '/admin' || to === '/courtier' || to === '/acheteur'}
               className={navClass}
             >
               <Icon className="h-4 w-4" />

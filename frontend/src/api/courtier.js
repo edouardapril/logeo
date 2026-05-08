@@ -74,3 +74,7 @@ export const restartRoundApi = (dealId) =>
 // Sprint UX item 5 — vision 360 par deal
 export const courtierListDealsEnrichedApi = () =>
   client.get('/courtier/deals/enriched').then(r => r.data)
+
+// Dashboard sommaire courtier — KPIs + deals en cours
+export const courtierDashboardApi = () =>
+  client.get('/courtier/dashboard').then(r => r.data)

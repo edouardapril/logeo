@@ -18,7 +18,8 @@ class DealStatus(str, enum.Enum):
 
 
 class PropertyType(str, enum.Enum):
-    """Catégories canoniques (refonte phase 1 — voir migration a1b2c3d4e5f6).
+    """Catégories canoniques (refonte phase 1 — a1b2c3d4e5f6 ;
+    réduction 6→5 catégories en f7a8b9c0d1e2, retrait de 'autre').
 
     La validation des entrées API repose sur cet enum (Pydantic) ; le stockage
     DB est désormais VARCHAR(50) + CHECK constraint, plus flexible.
@@ -28,7 +29,6 @@ class PropertyType(str, enum.Enum):
     petit_plex = "petit_plex"
     multilogement_6_24 = "multilogement_6_24"
     multilogement_24_plus = "multilogement_24_plus"
-    autre = "autre"
 
 
 class Deal(Base):

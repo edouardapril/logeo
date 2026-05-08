@@ -25,6 +25,121 @@ settings = get_settings()
 router = APIRouter(prefix="/courtier", tags=["courtier"])
 
 
+# ── Dashboard courtier (KPIs + deals en cours) ───────────────────────────────
+
+@router.get("/dashboard")
+async def courtier_dashboard(
+    current_user: User = Depends(require_courtier),
+    db: AsyncSession = Depends(get_db),
+):
+    """KPIs (deals soumis, actifs, fermés, valeur fermée) + liste deals en cours
+    enrichis (NDAs, bids count, prix actuel, jours restants).
+    """
+    from sqlalchemy import func
+    from app.models.nda import NDA
+    from app.models.bid import Bid, BidStatus
+    from app.services.auction import compute_auction_state
+
+    # ── KPIs ──────────────────────────────────────────────────────────────────
+    submitted_res = await db.execute(
+        select(func.count(Deal.id)).where(Deal.courtier_id == current_user.id)
+    )
+    total_submitted = int(submitted_res.scalar() or 0)
+
+    active_res = await db.execute(
+        select(func.count(Deal.id)).where(
+            Deal.courtier_id == current_user.id,
+            Deal.archived_at.is_(None),
+            Deal.status.in_([
+                DealStatus.draft, DealStatus.analyse,
+                DealStatus.bid, DealStatus.intro,
+            ]),
+        )
+    )
+    active_count = int(active_res.scalar() or 0)
+
+    closed_res = await db.execute(
+        select(func.count(Deal.id)).where(
+            Deal.courtier_id == current_user.id,
+            Deal.status == DealStatus.pa_signed,
+        )
+    )
+    closed_count = int(closed_res.scalar() or 0)
+
+    # Valeur totale fermée = somme bid gagnant pour les deals pa_signed
+    closed_value_res = await db.execute(
+        select(func.coalesce(func.sum(Bid.amount), 0))
+        .join(Deal, Deal.id == Bid.deal_id)
+        .where(
+            Deal.courtier_id == current_user.id,
+            Deal.status == DealStatus.pa_signed,
+            Bid.status == BidStatus.winner,
+        )
+    )
+    total_closed_value = int(closed_value_res.scalar() or 0)
+
+    # ── Deals en cours (non archivés, non pa_signed) ─────────────────────────
+    deals_res = await db.execute(
+        select(Deal).where(
+            Deal.courtier_id == current_user.id,
+            Deal.archived_at.is_(None),
+            Deal.status != DealStatus.pa_signed,
+        ).order_by(Deal.bid_close_at.asc().nullslast(), Deal.created_at.desc())
+    )
+    deals = list(deals_res.scalars())
+    deal_ids = [d.id for d in deals]
+
+    ndas_map: dict = {}
+    bids_map: dict = {}
+    if deal_ids:
+        nr = await db.execute(
+            select(NDA.deal_id, func.count(NDA.id))
+            .where(NDA.deal_id.in_(deal_ids)).group_by(NDA.deal_id)
+        )
+        for did, c in nr.all():
+            ndas_map[did] = int(c)
+        br = await db.execute(
+            select(Bid.deal_id, func.count(func.distinct(Bid.acheteur_id)))
+            .where(Bid.deal_id.in_(deal_ids), Bid.status == BidStatus.active)
+            .group_by(Bid.deal_id)
+        )
+        for did, c in br.all():
+            bids_map[did] = int(c)
+
+    now = datetime.now(timezone.utc)
+    active_deals = []
+    for d in deals:
+        state = await compute_auction_state(d, db)
+        days_remaining = None
+        if d.status == DealStatus.bid and d.bid_close_at:
+            secs = (d.bid_close_at - now).total_seconds()
+            days_remaining = max(0, round(secs / 86400, 1))
+        active_deals.append({
+            "deal_id": str(d.id),
+            "city": d.city,
+            "region": d.region,
+            "address_private": d.address_private,
+            "property_type": str(d.property_type),
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "floor_price": d.floor_price,
+            "displayed_price": state["displayed_price"],
+            "ndas_count": ndas_map.get(d.id, 0),
+            "bidders_count": bids_map.get(d.id, 0),
+            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+            "days_remaining": days_remaining,
+        })
+
+    return {
+        "kpis": {
+            "total_submitted": total_submitted,
+            "active_count": active_count,
+            "closed_count": closed_count,
+            "total_closed_value": total_closed_value,
+        },
+        "active_deals": active_deals,
+    }
+
+
 @router.get("/deals", response_model=list[DealListItem])
 async def list_my_deals(
     current_user: User = Depends(require_courtier),

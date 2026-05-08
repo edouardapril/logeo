@@ -37,7 +37,7 @@ const FAQ = [
   },
   {
     q: "Quels types de propriétés sont acceptés ?",
-    a: "Logeo accepte 6 catégories : Terrain, Résidentiel, Petit Plex (2-5 logements), Multilogement (6-24 logements), Multilogement (24+ logements), et « Autre » pour les cas particuliers. Pas d'unifamilial ni de condo personnel.",
+    a: "Logeo accepte 5 catégories : Terrain, Résidentiel, Petit Plex (2 à 5 logements), Multilogement (6-24 logements), Multilogement (+24 logements). Pas d'unifamilial ni de condo personnel.",
   },
   {
     q: "Comment sont protégés mes paiements ?",

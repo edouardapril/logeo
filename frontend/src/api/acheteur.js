@@ -29,6 +29,10 @@ export const requestVisitApi = (dealId, payload) =>
 export const myAuctionsApi = () =>
   client.get('/acheteur/my-auctions').then(r => r.data)
 
+// Dashboard sommaire — KPIs + dossiers actifs + deals à découvrir
+export const acheteurDashboardApi = () =>
+  client.get('/acheteur/dashboard').then(r => r.data)
+
 // Sprint UX item 2 — onboarding
 export const onboardingStatusApi = (dealId = null) =>
   client.get('/acheteur/onboarding-status', { params: dealId ? { deal_id: dealId } : {} })

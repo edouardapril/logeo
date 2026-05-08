@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Lock, MapPin, Users, ShieldCheck, ArrowRight, Building2,
-  FileText, Camera, MessageSquare, Trophy, Clock, AlertOctagon, Sparkles,
+  FileText, Camera, MessageSquare, Trophy, Clock, AlertOctagon, Sparkles, Info,
 } from 'lucide-react'
 import { publicDealApi, publicDealQuestionsApi } from '../../api/public'
 import Spinner from '../../components/ui/Spinner'
@@ -62,6 +63,7 @@ export default function DealPublic() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [showTgaDetail, setShowTgaDetail] = useState(false)
 
   const { data: deal, isLoading, error } = useQuery({
     queryKey: ['public-deal', id],
@@ -153,14 +155,14 @@ export default function DealPublic() {
                 />
               </p>
               <div className="flex items-center justify-center md:justify-end gap-3 text-xs text-gray-500 mt-1">
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1" title="Acheteurs ayant placé une offre active">
                   <Trophy className="h-3 w-3" />
                   <AnimatedNumber value={live.liveBidders ?? deal.bidders_count} />
-                  {' '}offres
+                  {' '}{(live.liveBidders ?? deal.bidders_count) > 1 ? 'offres déposées' : 'offre déposée'}
                 </span>
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1" title="Investisseurs ayant signé le NDA">
                   <ShieldCheck className="h-3 w-3" />
-                  {deal.ndas_count} investisseurs
+                  {deal.ndas_count} {deal.ndas_count > 1 ? 'investisseurs intéressés' : 'investisseur intéressé'}
                 </span>
               </div>
             </div>
@@ -198,9 +200,40 @@ export default function DealPublic() {
                 </div>
               )}
               {deal.cap_rate != null && (
-                <div>
-                  <dt className="text-xs text-gray-500">TGA (cap rate) estimé</dt>
+                <div className="relative">
+                  <dt className="text-xs text-gray-500 flex items-center gap-1">
+                    TGA (cap rate) estimé
+                    <button
+                      type="button"
+                      onClick={() => setShowTgaDetail(v => !v)}
+                      className="text-emerald-700 hover:text-emerald-900"
+                      aria-label="Voir le détail du calcul TGA"
+                      title="Voir le détail du calcul"
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  </dt>
                   <dd className="font-semibold text-emerald-600">{deal.cap_rate}%</dd>
+                  {showTgaDetail && deal.net_revenue != null && deal.floor_price != null && (
+                    <div className="absolute z-10 left-0 mt-1 w-64 rounded-lg bg-white shadow-lg border border-emerald-200 p-3 text-xs text-gray-700">
+                      <p className="font-semibold text-emerald-800 mb-1">Calcul TGA</p>
+                      <p className="text-gray-600 mb-2">Revenus nets ÷ Prix plancher × 100</p>
+                      <dl className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <dt className="text-gray-500">Revenus nets</dt>
+                          <dd className="font-medium">{formatMoney(deal.net_revenue)}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-gray-500">Prix plancher</dt>
+                          <dd className="font-medium">{formatMoney(deal.floor_price)}</dd>
+                        </div>
+                        <div className="flex justify-between pt-1 mt-1 border-t border-gray-100">
+                          <dt className="text-emerald-800 font-semibold">TGA</dt>
+                          <dd className="text-emerald-800 font-bold">{deal.cap_rate}%</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
                 </div>
               )}
               {deal.municipal_evaluation != null && (

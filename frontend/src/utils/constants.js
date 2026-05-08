@@ -1,25 +1,25 @@
-// Refonte phase 1 — 6 catégories canoniques (cf. migration a1b2c3d4e5f6).
-// Ordre du dropdown imposé par produit.
+// Refonte phase 1 — 5 catégories canoniques (a1b2c3d4e5f6 puis f7a8b9c0d1e2,
+// retrait de la catégorie 'autre'). Ordre du dropdown imposé par produit.
 export const PROPERTY_TYPES = [
   { value: 'terrain',                label: 'Terrain' },
   { value: 'residentiel',            label: 'Résidentiel' },
-  { value: 'petit_plex',             label: 'Petit Plex (2-5 logements)' },
-  { value: 'multilogement_6_24',     label: 'Multilogement (6-24 logements)' },
-  { value: 'multilogement_24_plus',  label: 'Multilogement (24+ logements)' },
-  { value: 'autre',                  label: 'Autre' },
+  { value: 'petit_plex',             label: 'Petit Plex – 2 à 5 logements' },
+  { value: 'multilogement_6_24',     label: 'Multilogement – 6-24 logements' },
+  { value: 'multilogement_24_plus',  label: 'Multilogement – +24 logements' },
 ]
 
-// Labels d'affichage : 6 canoniques + 9 legacy (fallback défensif si une donnée
-// non migrée passe à travers — la migration normalise tout, mais on garde un filet).
+// Labels d'affichage : 5 canoniques + legacy (fallback défensif). 'autre' est
+// gardé en label pour les caches navigateur ou paniers de données non encore
+// rafraîchis post-migration ; il ne doit plus apparaître en DB.
 export const PROPERTY_TYPE_LABELS = {
-  // Canoniques (post-refonte)
+  // Canoniques (post-refonte 5 catégories)
   terrain:                'Terrain',
   residentiel:            'Résidentiel',
-  petit_plex:             'Petit Plex (2-5 logements)',
-  multilogement_6_24:     'Multilogement (6-24 logements)',
-  multilogement_24_plus:  'Multilogement (24+ logements)',
-  autre:                  'Autre',
+  petit_plex:             'Petit Plex – 2 à 5 logements',
+  multilogement_6_24:     'Multilogement – 6-24 logements',
+  multilogement_24_plus:  'Multilogement – +24 logements',
   // Legacy — ne devraient plus apparaître après migration, mais affichage gracieux si oui
+  autre:                  'Autre (legacy)',
   multilogement_2_6:      'Multilogement 2-6 (legacy)',
   multilogement_7_24:     'Multilogement 7-24 (legacy)',
   projet_24_plus:         'Projet 24+ (legacy)',

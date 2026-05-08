@@ -5,10 +5,12 @@ import toast from 'react-hot-toast'
 import {
   ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send, RotateCcw,
   Lock, MapPin, Building, Hammer, Receipt, Video,
+  Image as ImageIcon, Star, X, Save,
 } from 'lucide-react'
 import {
   courtierGetDealApi, uploadPaApi,
   courtierListQuestionsApi, answerQuestionApi, restartRoundApi,
+  uploadDealPhotosApi, deleteDealPhotoApi, setTeaserSelectionApi,
 } from '../../api/courtier'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
@@ -40,6 +42,9 @@ export default function CourtierDealDetail() {
   const { user } = useAuth()
   const [paFile, setPaFile] = useState(null)
   const [answerDraft, setAnswerDraft] = useState({})
+  // Sélection teaser locale — paths originals choisis comme cover/secondaires
+  const [coverPath, setCoverPath] = useState(null)
+  const [secondaryPaths, setSecondaryPaths] = useState([])
 
   const { data: deal, isLoading } = useQuery({
     queryKey: ['courtier', 'deal', dealId],
@@ -90,6 +95,54 @@ export default function CourtierDealDetail() {
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
+
+  // ── Photos & sélection teaser ──────────────────────────────────────────────
+  const uploadPhotosMut = useMutation({
+    mutationFn: (files) => uploadDealPhotosApi(dealId, files),
+    onSuccess: () => {
+      toast.success('Photos uploadées')
+      queryClient.invalidateQueries({ queryKey: ['courtier', 'deal', dealId] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur upload'),
+  })
+
+  const deletePhotoMut = useMutation({
+    mutationFn: (path) => deleteDealPhotoApi(dealId, path),
+    onSuccess: () => {
+      toast.success('Photo supprimée')
+      setCoverPath(null)
+      setSecondaryPaths([])
+      queryClient.invalidateQueries({ queryKey: ['courtier', 'deal', dealId] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const teaserSelectionMut = useMutation({
+    mutationFn: () => setTeaserSelectionApi(dealId, {
+      cover_original: coverPath,
+      secondary_originals: secondaryPaths,
+    }),
+    onSuccess: () => {
+      toast.success('Sélection teaser enregistrée — watermarks générés')
+      queryClient.invalidateQueries({ queryKey: ['courtier', 'deal', dealId] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
+  const onPickCover = (path) => {
+    setCoverPath(path)
+    setSecondaryPaths(secondaryPaths.filter(p => p !== path))
+  }
+  const onToggleSecondary = (path) => {
+    if (path === coverPath) return
+    if (secondaryPaths.includes(path)) {
+      setSecondaryPaths(secondaryPaths.filter(p => p !== path))
+    } else if (secondaryPaths.length < 2) {
+      setSecondaryPaths([...secondaryPaths, path])
+    } else {
+      toast('Maximum 2 photos secondaires', { icon: 'ℹ️' })
+    }
+  }
 
   if (isLoading) return <Spinner />
   if (!deal) return null
@@ -419,6 +472,154 @@ export default function CourtierDealDetail() {
           </ul>
         </div>
       )}
+
+      {/* Photos & sélection teaser — visibles toujours, modifiables si !is_locked */}
+      <div className="card p-6 mb-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+            <ImageIcon className="h-4 w-4" />
+            Photos & teaser ({(deal.photo_paths || []).length})
+          </h2>
+          {!deal.is_locked && (
+            <label className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5">
+              <Upload className="h-3.5 w-3.5" />
+              Ajouter des photos
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const list = Array.from(e.target.files || [])
+                  if (list.length) uploadPhotosMut.mutate(list)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          )}
+        </div>
+
+        {(!deal.photo_paths || deal.photo_paths.length === 0) ? (
+          <p className="text-sm text-gray-500">
+            Aucune photo. Ajoutez-en pour pouvoir sélectionner 1 couverture + 2 secondaires
+            qui seront watermarquées et visibles publiquement avant NDA.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-gray-600 mb-3">
+              Cochez 1 photo de couverture (★) et jusqu'à 2 photos secondaires.
+              Les 1 à 3 photos sélectionnées seront watermarquées et publiques avant NDA ;
+              les autres restent privées (post-NDA uniquement).
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
+              {(deal.photo_paths || []).map((p, i) => {
+                const isCover = coverPath === p
+                const secRank = secondaryPaths.indexOf(p)
+                const isSecondary = secRank >= 0
+                const secDisabled = !isSecondary && !isCover && secondaryPaths.length >= 2
+                return (
+                  <div key={p} className="relative">
+                    <img
+                      src={fileUrl(p)}
+                      alt={`Photo ${i + 1}`}
+                      className={`h-32 w-full object-cover rounded-lg ${
+                        isCover ? 'ring-2 ring-amber-500' : isSecondary ? 'ring-2 ring-blue-500' : ''
+                      }`}
+                    />
+                    {isCover && (
+                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wide">
+                        ★ Couverture
+                      </span>
+                    )}
+                    {isSecondary && (
+                      <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-blue-500 text-white text-[10px] font-bold uppercase tracking-wide">
+                        Sec. {secRank + 1}
+                      </span>
+                    )}
+                    {!deal.is_locked && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm('Supprimer cette photo ?')) deletePhotoMut.mutate(p)
+                          }}
+                          aria-label="Supprimer la photo"
+                          className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                        <div className="absolute bottom-1 inset-x-1 flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onPickCover(p)}
+                            className={`flex-1 text-[10px] font-semibold py-1 rounded transition ${
+                              isCover
+                                ? 'bg-amber-500 text-white shadow'
+                                : 'bg-white/90 text-gray-700 hover:bg-amber-50 hover:text-amber-700'
+                            }`}
+                          >
+                            <Star className="h-3 w-3 inline -mt-0.5" /> Cover
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onToggleSecondary(p)}
+                            disabled={secDisabled}
+                            className={`flex-1 text-[10px] font-semibold py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                              isSecondary
+                                ? 'bg-blue-500 text-white shadow'
+                                : 'bg-white/90 text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                            }`}
+                          >
+                            Secondaire
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {!deal.is_locked && (
+              <div className="flex items-center justify-between gap-3 flex-wrap pt-3 border-t border-gray-100">
+                <p className="text-xs text-gray-500">
+                  {coverPath
+                    ? `Sélection : 1 cover · ${secondaryPaths.length} secondaire${secondaryPaths.length > 1 ? 's' : ''}`
+                    : 'Aucune sélection — choisissez d\'abord une couverture'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => teaserSelectionMut.mutate()}
+                  disabled={!coverPath || teaserSelectionMut.isPending}
+                  className="btn-primary text-sm inline-flex items-center gap-1.5"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {teaserSelectionMut.isPending ? 'Génération…' : 'Enregistrer la sélection teaser'}
+                </button>
+              </div>
+            )}
+
+            {/* Aperçu courant des watermarks publics */}
+            {(deal.teaser_photo_paths || []).length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-2">
+                  Aperçu teaser actuel (watermarqué, visible avant NDA)
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {(deal.teaser_photo_paths || []).map((wp, i) => (
+                    <img
+                      key={i}
+                      src={fileUrl(wp)}
+                      alt={`Teaser ${i + 1}`}
+                      className="h-20 w-32 object-cover rounded border border-gray-200"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Frais Logeo (post-verdict) */}
       {(deal.fee_pct || deal.fee_minimum) && (

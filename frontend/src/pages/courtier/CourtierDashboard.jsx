@@ -4,8 +4,9 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Plus, Building2, ShieldAlert, ShieldCheck, MessageSquare,
   Trophy, Users, ArrowRight, MapPin, Clock,
+  FileText, CheckCircle2, DollarSign,
 } from 'lucide-react'
-import { courtierListDealsEnrichedApi } from '../../api/courtier'
+import { courtierListDealsEnrichedApi, courtierDashboardApi } from '../../api/courtier'
 import { conventionStatusApi } from '../../api/profile'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
@@ -27,6 +28,26 @@ const TABS = [
 const ACTIVE_STATUSES   = ['bid', 'intro']
 const PENDING_STATUSES  = ['analyse', 'draft']
 const FINISHED_STATUSES = ['pa_signed', 'auction_ended', 'nogo']
+
+function KpiCard({ icon: Icon, label, value, color = 'orange', formatFn }) {
+  const palettes = {
+    orange:  { bg: 'bg-[#FFEDD5]', text: 'text-[#9A3412]', icon: 'text-[#C2410C]' },
+    blue:    { bg: 'bg-blue-50',   text: 'text-blue-900',  icon: 'text-blue-600' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-900', icon: 'text-emerald-600' },
+    amber:   { bg: 'bg-amber-50',  text: 'text-amber-900',  icon: 'text-amber-600' },
+  }
+  const p = palettes[color] || palettes.orange
+  const display = formatFn ? formatFn(value) : value
+  return (
+    <div className={`card p-5 ${p.bg} border-transparent`}>
+      <div className="flex items-center gap-3">
+        <Icon className={`h-5 w-5 ${p.icon}`} />
+        <p className="text-xs uppercase tracking-wide text-gray-600 font-semibold">{label}</p>
+      </div>
+      <p className={`text-2xl font-bold mt-2 ${p.text}`}>{display}</p>
+    </div>
+  )
+}
 
 function MetricBadge({ icon: Icon, value, label, alert = false }) {
   return (
@@ -131,6 +152,12 @@ export default function CourtierDashboard() {
     queryKey: ['convention-status'],
     queryFn: conventionStatusApi,
   })
+  const { data: dashboard } = useQuery({
+    queryKey: ['courtier', 'dashboard'],
+    queryFn: courtierDashboardApi,
+    refetchInterval: 60_000,
+  })
+  const kpis = dashboard?.kpis
 
   const counts = useMemo(() => {
     const c = { active: 0, pending: 0, finished: 0 }
@@ -163,6 +190,22 @@ export default function CourtierDashboard() {
           <Plus className="h-4 w-4" /> Soumettre un deal
         </Link>
       </div>
+
+      {/* KPIs */}
+      {kpis && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <KpiCard icon={FileText} label="Deals soumis" value={kpis.total_submitted} color="blue" />
+          <KpiCard icon={Building2} label="Deals actifs" value={kpis.active_count} color="orange" />
+          <KpiCard icon={CheckCircle2} label="Deals fermés" value={kpis.closed_count} color="emerald" />
+          <KpiCard
+            icon={DollarSign}
+            label="Valeur fermée"
+            value={kpis.total_closed_value}
+            color="amber"
+            formatFn={formatMoney}
+          />
+        </div>
+      )}
 
       {/* Bandeau convention */}
       {conv?.needs_resign ? (

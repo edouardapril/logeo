@@ -926,6 +926,154 @@ async def my_auctions(
     return out
 
 
+# ── Dashboard sommaire (KPIs + dossiers actifs + deals à découvrir) ──────────
+
+@router.get("/dashboard")
+async def acheteur_dashboard(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dashboard acheteur : KPIs (NDAs, bids actifs, deals gagnés, valeur totale offres),
+    Mes dossiers actifs (deals avec activité NDA/bid), Deals à découvrir (récents non NDA'd).
+    """
+    # ── KPIs ──────────────────────────────────────────────────────────────────
+    ndas_signed_res = await db.execute(
+        select(func.count(NDA.id)).where(NDA.acheteur_id == current_user.id)
+    )
+    ndas_signed = int(ndas_signed_res.scalar() or 0)
+
+    active_bids_res = await db.execute(
+        select(Bid).where(
+            Bid.acheteur_id == current_user.id,
+            Bid.status == BidStatus.active,
+        )
+    )
+    active_bids = list(active_bids_res.scalars().all())
+    # Distinct deals where I have an active bid
+    active_bid_deal_ids = {b.deal_id for b in active_bids}
+    active_bids_count = len(active_bid_deal_ids)
+    # Valeur totale = somme des max par deal (ma stratégie proxy bid courante)
+    total_active_bids_value = 0
+    for did in active_bid_deal_ids:
+        my_max_res = await db.execute(
+            select(func.max(Bid.amount)).where(
+                Bid.deal_id == did,
+                Bid.acheteur_id == current_user.id,
+                Bid.status == BidStatus.active,
+            )
+        )
+        m = my_max_res.scalar()
+        if m:
+            total_active_bids_value += int(m)
+
+    won_res = await db.execute(
+        select(func.count(Bid.id))
+        .join(Deal, Deal.id == Bid.deal_id)
+        .where(
+            Bid.acheteur_id == current_user.id,
+            Bid.status == BidStatus.winner,
+            Deal.status == DealStatus.pa_signed,
+        )
+    )
+    won_count = int(won_res.scalar() or 0)
+
+    # ── Mes dossiers actifs : NDAs ou bids, deal pas archivé ──────────────────
+    nda_deal_ids_res = await db.execute(
+        select(NDA.deal_id).where(NDA.acheteur_id == current_user.id).distinct()
+    )
+    nda_deal_ids = {row[0] for row in nda_deal_ids_res.all()}
+    bid_deal_ids_res = await db.execute(
+        select(Bid.deal_id).where(Bid.acheteur_id == current_user.id).distinct()
+    )
+    bid_deal_ids = {row[0] for row in bid_deal_ids_res.all()}
+    active_deal_ids = nda_deal_ids | bid_deal_ids
+
+    active_deals: list = []
+    if active_deal_ids:
+        deals_res = await db.execute(
+            select(Deal).where(
+                Deal.id.in_(active_deal_ids),
+                Deal.archived_at.is_(None),
+            ).order_by(Deal.bid_close_at.desc().nullslast())
+        )
+        for d in deals_res.scalars():
+            state = await auction_svc.compute_auction_state(d, db)
+            i_lead = state["winner_id"] == current_user.id and state["winner_id"] is not None
+
+            # Mon statut sur ce deal — label clair côté UX
+            has_my_bid = d.id in bid_deal_ids
+            winner_bid_res = await db.execute(
+                select(Bid).where(Bid.deal_id == d.id, Bid.status == BidStatus.winner)
+            )
+            winner_bid = winner_bid_res.scalar_one_or_none()
+            i_won = winner_bid is not None and winner_bid.acheteur_id == current_user.id
+
+            if d.status == DealStatus.pa_signed and i_won:
+                my_status_label = "Adjugé — PA signée"
+            elif d.status == DealStatus.intro and i_won:
+                my_status_label = "Adjugé — due diligence en cours"
+            elif d.status == DealStatus.bid and has_my_bid and i_lead:
+                my_status_label = "Offre la plus haute"
+            elif d.status == DealStatus.bid and has_my_bid:
+                my_status_label = "Offre dépassée"
+            elif d.status == DealStatus.bid and not has_my_bid:
+                my_status_label = "NDA signée — pas encore d'offre"
+            elif d.status in (DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+                my_status_label = "Enchère terminée"
+            else:
+                my_status_label = "—"
+
+            active_deals.append({
+                "deal_id": str(d.id),
+                "city": d.city,
+                "region": d.region,
+                "property_type": str(d.property_type),
+                "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+                "displayed_price": state["displayed_price"],
+                "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+                "my_status_label": my_status_label,
+            })
+
+    # ── Deals à découvrir : 5 deals 'bid' actifs non NDA'd ────────────────────
+    discover_query = select(Deal).where(
+        Deal.status == DealStatus.bid,
+        Deal.archived_at.is_(None),
+        Deal.bid_close_at.isnot(None),
+        Deal.bid_close_at > datetime.now(timezone.utc),
+    )
+    if nda_deal_ids:
+        discover_query = discover_query.where(~Deal.id.in_(nda_deal_ids))
+    discover_query = discover_query.order_by(Deal.bid_open_at.desc().nullslast()).limit(5)
+    discover_res = await db.execute(discover_query)
+    discover = []
+    for d in discover_res.scalars():
+        state = await auction_svc.compute_auction_state(d, db)
+        discover.append({
+            "deal_id": str(d.id),
+            "city": d.city,
+            "region": d.region,
+            "property_type": str(d.property_type),
+            "floor_price": d.floor_price,
+            "displayed_price": state["displayed_price"],
+            "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
+            "teaser_photo_path": (
+                (d.teaser_photo_paths or [None])[0]
+                or d.teaser_photo_path
+            ),
+        })
+
+    return {
+        "kpis": {
+            "ndas_signed": ndas_signed,
+            "active_bids_count": active_bids_count,
+            "won_deals": won_count,
+            "total_active_bids_value": total_active_bids_value,
+        },
+        "active_deals": active_deals,
+        "discover": discover,
+    }
+
+
 # ── Onboarding status (sprint UX item 2) ─────────────────────────────────────
 
 @router.get("/onboarding-status")
