@@ -3,8 +3,8 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send, RotateCcw,
-  Lock, Image as ImageIcon, Star, X, Save,
+  ArrowLeft, Upload, FileText, MessageSquare, Send, RotateCcw,
+  Lock, Image as ImageIcon, Star, X, Save, Eye, Pencil,
 } from 'lucide-react'
 import {
   courtierGetDealApi, uploadPaApi,
@@ -12,15 +12,15 @@ import {
   uploadDealPhotosApi, deleteDealPhotoApi, setTeaserSelectionApi,
 } from '../../api/courtier'
 import Spinner from '../../components/ui/Spinner'
-import Badge from '../../components/ui/Badge'
-import Timer from '../../components/ui/Timer'
-import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import { Textarea } from '../../components/ui/Input'
 import ReviewSection from '../../components/deal/ReviewSection'
 import { useAuth } from '../../contexts/AuthContext'
 import { listReviewsForDealApi } from '../../api/reviews'
 import { fileUrl } from '../../utils/url'
 import DealFiche from '../../components/deal/DealFiche'
+import DealHero from '../../components/deal/DealHero'
+import LockedFeatureGrid from '../../components/deal/LockedFeatureGrid'
+import CourtierDealProgress from '../../components/courtier/CourtierDealProgress'
 
 export default function CourtierDealDetail() {
   const { dealId } = useParams()
@@ -133,30 +133,62 @@ export default function CourtierDealDetail() {
   if (isLoading) return <Spinner />
   if (!deal) return null
 
+  // CTA hero rôle-aware courtier owner :
+  //  - pre-bidding (draft/analyse) : Modifier (lien — l'édition courante se fait
+  //    via les sections de fiche éditables ci-dessous tant que !is_locked)
+  //  - bidding (bid) ou post-bidding : Voir l'activité (lien interne ancre Q&A)
+  //  - auction_ended : Relancer une nouvelle ronde (action mutation)
+  const heroCta = (
+    deal.status === 'auction_ended' ? (
+      <button
+        onClick={() => {
+          if (window.confirm('Relancer une nouvelle ronde de 10 jours ? Le deal repassera en analyse.')) {
+            restartMut.mutate()
+          }
+        }}
+        disabled={restartMut.isPending}
+        className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
+      >
+        <RotateCcw className="h-5 w-5" />
+        {restartMut.isPending ? '...' : 'Relancer une nouvelle ronde'}
+      </button>
+    ) : ['draft', 'analyse'].includes(deal.status) && !deal.is_locked ? (
+      <a
+        href="#fiche-edit"
+        className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
+      >
+        <Pencil className="h-5 w-5" />
+        Modifier mon deal
+      </a>
+    ) : (
+      <a
+        href="#activite"
+        className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
+      >
+        <Eye className="h-5 w-5" />
+        Voir l'activité ({deal.ndas_count || 0} NDAs · {deal.bidders_count || 0} offres)
+      </a>
+    )
+  )
+
   return (
-    <div className="max-w-3xl">
+    <div>
       <Link to="/courtier" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
-        <ArrowLeft className="h-4 w-4" /> Retour
+        <ArrowLeft className="h-4 w-4" /> Retour aux deals
       </Link>
 
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
-            </h1>
-            <Badge status={deal.status} />
-          </div>
-          <p className="text-sm text-gray-600">Soumis le {new Date(deal.created_at).toLocaleDateString('fr-CA')}</p>
-        </div>
-      </div>
+      {/* Progress bar courtier — étapes Soumis → Approuvé → Enchères → Acheteur → PA */}
+      <CourtierDealProgress deal={deal} />
 
-      {/* Bandeau read-only si fiche verrouillée (enchères en cours / terminées) */}
+      {/* Hero unifié — countdown + prix + CTA rôle-aware */}
+      <DealHero deal={deal} cta={heroCta} />
+
+      {/* Bandeau read-only si fiche verrouillée (post-démarrage enchères) */}
       {deal.is_locked && (
         <div className="card p-4 mb-6 bg-gray-100 border-gray-300 flex items-center gap-3">
           <Lock className="h-5 w-5 text-gray-600 flex-shrink-0" />
           <div>
-            <p className="font-semibold text-gray-900 text-sm">Enchères en cours — lecture seule</p>
+            <p className="font-semibold text-gray-900 text-sm">Enchères en cours — fiche en lecture seule</p>
             <p className="text-xs text-gray-700">
               La fiche n'est plus modifiable depuis le démarrage des enchères. Contactez l'admin si une correction est nécessaire.
             </p>
@@ -164,107 +196,33 @@ export default function CourtierDealDetail() {
         </div>
       )}
 
-      {/* État du deal selon le statut */}
-      {deal.status === 'analyse' && (
-        <div className="card p-6 mb-6 bg-amber-50 border-amber-200">
-          <div className="flex items-start gap-3">
-            <Clock className="h-5 w-5 text-amber-600 mt-0.5" />
-            <div>
-              <h3 className="font-semibold text-amber-900">Analyse en cours</h3>
-              <p className="text-sm text-amber-800 mt-1">
-                L'équipe Logeo examine votre soumission. Vous recevrez un email avec le verdict GO ou NO GO.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deal.status === 'bid' && deal.bid_close_at && (
-        <div className="card p-6 mb-6 bg-[#FFEDD5] border-[#FDBA74]">
-          <h3 className="font-semibold text-[#C2410C] mb-2">Enchère en cours</h3>
-          <p className="text-sm text-[#1A1A1A] mb-3">
-            Votre deal est en ligne. Les acheteurs qualifiés peuvent maintenant signer le NDA et enchérir.
-          </p>
-          <Timer closeAt={deal.bid_close_at} size="lg" showLabel />
-        </div>
-      )}
-
-      {deal.status === 'intro' && (
-        <div className="card p-6 mb-6 bg-emerald-50 border-emerald-200">
-          <h3 className="font-semibold text-emerald-900">Acheteur confirmé</h3>
-          <p className="text-sm text-emerald-800 mt-1">
-            Un acheteur a remporté l'enchère et payé son dépôt. Vous avez reçu son introduction par email.
-            Une fois la PA signée avec votre acheteur, uploadez-la ci-dessous.
-          </p>
-        </div>
-      )}
-
-      {deal.status === 'pa_signed' && (
-        <div className="card p-6 mb-6 bg-green-50 border-green-200">
-          <h3 className="font-semibold text-green-900">Deal finalisé · Promesse d'achat enregistrée</h3>
-          <p className="text-sm text-green-800 mt-1">
-            Votre commission Logeo (1 500 $) sera déclenchée à la confirmation du paiement final par l'admin.
-          </p>
-        </div>
-      )}
-
-      {deal.status === 'nogo' && deal.nogo_reason && (
-        <div className="card p-6 mb-6 bg-red-50 border-red-200">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
-            <div>
-              <h3 className="font-semibold text-red-900">Deal non retenu</h3>
-              <p className="text-sm text-red-800 mt-1">{deal.nogo_reason}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Item 4 : enchère terminée sans gagnant → bouton relancer */}
-      {deal.status === 'auction_ended' && (
-        <div className="card p-6 mb-6 bg-gray-50 border-gray-200">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-start gap-3 flex-1 min-w-0">
-              <Clock className="h-5 w-5 text-gray-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-gray-900">
-                  Enchère terminée — Plancher non atteint
-                </h3>
-                <p className="text-sm text-gray-700 mt-1">
-                  Aucune offre n'a été reçue avant la fermeture. Vous pouvez relancer
-                  une nouvelle ronde de 10 jours. Le deal repassera en analyse pour
-                  validation admin avant publication.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                if (window.confirm('Relancer une nouvelle ronde de 10 jours ? Le deal repassera en analyse.')) {
-                  restartMut.mutate()
-                }
-              }}
-              disabled={restartMut.isPending}
-              className="btn-primary text-sm"
-            >
-              <RotateCcw className="h-4 w-4" />
-              {restartMut.isPending ? '...' : 'Relancer une nouvelle ronde'}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Détails propriété (cards locked/unlocked) — owner a tout débloqué */}
+      <div className="mb-6">
+        <LockedFeatureGrid
+          permissions={{
+            canSeePhotos: true,
+            canSeeAddress: true,
+            canSeeDocuments: true,
+            canSeeCourtier: true,
+          }}
+          lockedHint="—"
+        />
+      </div>
 
       {/* Fiche partagée — visuel acheteur post-NDA, sections rôle-aware */}
-      <DealFiche
-        deal={deal}
-        permissions={{
-          canSeeAddress: true,        // owner voit son adresse
-          canSeeFinancials: true,
-          canSeePhotos: false,        // gérées par le panel courtier-spécifique ci-dessous
-          canSeeCourtier: false,      // pas de bloc « courtier » à soi-même
-          canSeeDocuments: true,
-          canSeeAdminMeta: true,      // frais Logeo applicables
-        }}
-      />
+      <div id="fiche-edit">
+        <DealFiche
+          deal={deal}
+          permissions={{
+            canSeeAddress: true,        // owner voit son adresse
+            canSeeFinancials: true,
+            canSeePhotos: false,        // gérées par le panel courtier-spécifique ci-dessous
+            canSeeCourtier: false,      // pas de bloc « courtier » à soi-même
+            canSeeDocuments: true,
+            canSeeAdminMeta: true,      // frais Logeo applicables
+          }}
+        />
+      </div>
 
       {/* Photos & sélection teaser — visibles toujours, modifiables si !is_locked */}
       <div className="card p-6 mb-6">
@@ -418,7 +376,7 @@ export default function CourtierDealDetail() {
       </div>
 
       {/* Q&A — répondre aux questions des acheteurs */}
-      <div className="card p-6 mb-6">
+      <div id="activite" className="card p-6 mb-6">
         <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-[#C2410C]" />
           Questions des acheteurs ({questions?.length || 0})

@@ -202,6 +202,11 @@ class DealCourtierFull(DealTeaser):
     fee_minimum: int | None = None
     is_locked: bool = False  # True après démarrage des enchères → fiche read-only
     archived_at: datetime | None = None  # Visible à l'owner pour information
+    # Stats live pour le hero unifié — calculés runtime, ne sont pas en DB
+    displayed_price: int | None = None
+    bidders_count: int = 0
+    ndas_count: int = 0
+    unanswered_questions_count: int = 0
 
     model_config = {"from_attributes": True}
 

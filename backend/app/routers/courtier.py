@@ -228,18 +228,42 @@ async def get_my_deal(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import func
+    from app.models.nda import NDA
+    from app.models.bid import Bid, BidStatus
+    from app.services.auction import compute_auction_state
+
     result = await db.execute(
         select(Deal).where(Deal.id == deal_id, Deal.courtier_id == current_user.id)
     )
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
+
+    # Stats live — utilisées par le hero de la fiche unifiée
+    state = await compute_auction_state(deal, db)
+    ndas_res = await db.execute(
+        select(func.count(NDA.id)).where(NDA.deal_id == deal_id)
+    )
+    ndas_count = int(ndas_res.scalar() or 0)
+    unans_res = await db.execute(
+        select(func.count(DealQuestion.id)).where(
+            DealQuestion.deal_id == deal_id, DealQuestion.answer.is_(None),
+        )
+    )
+    unans_count = int(unans_res.scalar() or 0)
+
     return {
         **deal.__dict__,
         "is_locked": _is_locked_for_courtier(deal),
         # Liste parallèle de paths bruts pour le panel de sélection teaser
         # (le PATCH /teaser-selection valide contre les paths DB, pas les URLs signées).
         "photo_paths_raw": list(deal.photo_paths or []),
+        # Stats live pour le hero unifié
+        "displayed_price": state["displayed_price"],
+        "bidders_count": state["bidders_count"],
+        "ndas_count": ndas_count,
+        "unanswered_questions_count": unans_count,
     }
 
 

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  ArrowLeft, MapPin, Building, User, FileText, Trophy, DollarSign,
+  ArrowLeft, Trophy, DollarSign,
   Archive, ArchiveRestore, Trash2, AlertTriangle as AlertTriangleIcon,
 } from 'lucide-react'
 import {
@@ -15,9 +15,9 @@ import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import Input, { Textarea } from '../../components/ui/Input'
-import Timer from '../../components/ui/Timer'
-import { fileUrl } from '../../utils/url'
-import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
+import DealHero from '../../components/deal/DealHero'
+import DealFiche from '../../components/deal/DealFiche'
+import LockedFeatureGrid from '../../components/deal/LockedFeatureGrid'
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
@@ -132,37 +132,15 @@ export default function AdminDealDetail() {
     }
   }
 
-  return (
-    <div>
-      <Link to="/admin/deals" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
-        <ArrowLeft className="h-4 w-4" /> Retour
-      </Link>
-
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900">
-              {deal.city} · {PROPERTY_TYPE_LABELS[deal.property_type] || deal.property_type}
-            </h1>
-            <Badge status={deal.status} />
-            {deal.archived_at && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-700">
-                <Archive className="h-3 w-3" /> Archivé
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-gray-600">ID : {deal.id}</p>
-          {deal.archived_at && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              Archivé le {new Date(deal.archived_at).toLocaleString('fr-CA')}
-            </p>
-          )}
-        </div>
-
+  // Bandeau d'actions admin — placé au-dessus du Hero, regroupé pour clarté.
+  const adminActions = (
+    <div className="card p-4 mb-6 bg-[#1A1A1A] text-white">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm font-semibold uppercase tracking-wide">Actions admin</p>
         <div className="flex gap-2 flex-wrap">
           {canVerdict && (
             <>
-              <button onClick={() => setVerdictModal('nogo')} className="btn-secondary">
+              <button onClick={() => setVerdictModal('nogo')} className="btn-secondary text-sm">
                 NO GO
               </button>
               <button
@@ -175,221 +153,146 @@ export default function AdminDealDetail() {
                   setVerdictForm({ ...verdictForm, bid_close_at: localIso })
                   setVerdictModal('go')
                 }}
-                className="btn-primary"
+                className="btn-primary text-sm"
               >
                 GO · Publier
               </button>
             </>
           )}
-
-          {/* Archiver / Désarchiver */}
+          {canConfirmDeposit && (
+            <button onClick={() => setInteracModal('deposit')} className="btn-primary text-sm">
+              Confirmer dépôt 25 %
+            </button>
+          )}
+          {canConfirmBalance && (
+            <button onClick={() => setInteracModal('balance')} className="btn-primary text-sm">
+              Confirmer solde 75 %
+            </button>
+          )}
           {deal.archived_at ? (
             <button
               onClick={() => unarchiveMut.mutate()}
               disabled={unarchiveMut.isPending}
-              className="btn-secondary inline-flex items-center gap-1.5"
+              className="btn-secondary text-sm inline-flex items-center gap-1.5"
             >
-              <ArchiveRestore className="h-4 w-4" />
-              Désarchiver
+              <ArchiveRestore className="h-4 w-4" /> Désarchiver
             </button>
           ) : (
             <button
               onClick={() => archiveMut.mutate()}
               disabled={archiveMut.isPending}
-              className="btn-secondary inline-flex items-center gap-1.5"
+              className="btn-secondary text-sm inline-flex items-center gap-1.5"
             >
-              <Archive className="h-4 w-4" />
-              Archiver
+              <Archive className="h-4 w-4" /> Archiver
             </button>
           )}
-
-          {/* Supprimer (danger) */}
           <button
             onClick={() => { setDeleteConfirmText(''); setDeleteModal(true) }}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
           >
-            <Trash2 className="h-4 w-4" />
-            Supprimer
+            <Trash2 className="h-4 w-4" /> Supprimer
           </button>
         </div>
       </div>
+      <p className="text-xs text-white/60 mt-2">
+        ID {deal.id}
+        {deal.archived_at && ` · Archivé le ${new Date(deal.archived_at).toLocaleString('fr-CA')}`}
+      </p>
+    </div>
+  )
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Building className="h-4 w-4" /> Informations propriété
-            </h2>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-gray-500 text-xs">Adresse privée</dt>
-                <dd className="font-medium flex items-center gap-1">
-                  <MapPin className="h-3 w-3 text-red-500" /> {deal.address_private}
-                </dd>
-              </div>
-              {deal.gross_revenue && (
-                <div>
-                  <dt className="text-gray-500 text-xs">Revenus bruts</dt>
-                  <dd className="font-medium">{formatMoney(deal.gross_revenue)}</dd>
-                </div>
-              )}
-              {deal.yield_pct != null && (
-                <div>
-                  <dt className="text-gray-500 text-xs">Rendement</dt>
-                  <dd className="font-medium text-emerald-600">{deal.yield_pct.toFixed(2)}%</dd>
-                </div>
-              )}
-              {deal.num_units && (
-                <div>
-                  <dt className="text-gray-500 text-xs">Logements</dt>
-                  <dd className="font-medium">{deal.num_units}</dd>
-                </div>
-              )}
-            </dl>
+  return (
+    <div>
+      <Link to="/admin/deals" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
+        <ArrowLeft className="h-4 w-4" /> Retour aux deals
+      </Link>
 
-            {deal.teaser_text && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <dt className="text-gray-500 text-xs mb-1">Teaser public</dt>
-                <p className="text-sm text-gray-700">{deal.teaser_text}</p>
-              </div>
-            )}
-          </div>
+      {/* Bandeau d'actions admin — bandeau noir au-dessus du Hero */}
+      {adminActions}
 
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <User className="h-4 w-4" /> Courtier
-            </h2>
-            <dl className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-gray-500 text-xs">Nom</dt>
-                <dd className="font-medium">{deal.courtier_name}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-500 text-xs">Email</dt>
-                <dd className="font-medium">{deal.courtier_email}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-500 text-xs">Téléphone</dt>
-                <dd className="font-medium">{deal.courtier_phone || '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-500 text-xs">Agence</dt>
-                <dd className="font-medium">{deal.agency_name || '—'}</dd>
-              </div>
-            </dl>
-          </div>
+      {/* Hero unifié — countdown + prix + lien rapide vers les bids */}
+      <DealHero
+        deal={deal}
+        cta={
+          <a
+            href="#bids"
+            className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
+          >
+            <Trophy className="h-5 w-5" /> Voir les enchères ({bids?.length || 0})
+          </a>
+        }
+      />
 
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <DollarSign className="h-4 w-4" /> Enchères ({bids?.length || 0})
-            </h2>
-            {!bids?.length ? (
-              <p className="text-sm text-gray-500 py-4">Aucune offre soumise.</p>
-            ) : (
-              <div className="space-y-2">
-                {bids.map((b, i) => (
-                  <div
-                    key={b.id}
-                    className={`flex items-center justify-between p-3 rounded-lg ${
-                      b.status === 'winner' ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      {b.status === 'winner' && <Trophy className="h-4 w-4 text-amber-600" />}
-                      <div>
-                        <p className="font-medium text-sm">{b.acheteur_name}</p>
-                        <p className="text-xs text-gray-500">
-                          {new Date(b.created_at).toLocaleString('fr-CA')}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-semibold text-gray-900">{formatMoney(b.amount)}</span>
-                      <Badge>{b.status}</Badge>
-                      {b.payment_status !== 'pending' && (
-                        <span className="text-xs text-gray-500">{b.payment_status}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          {deal.status === 'bid' && deal.bid_close_at && (
-            <div className="card p-6">
-              <h2 className="font-semibold text-gray-900 mb-3">Temps restant</h2>
-              <Timer closeAt={deal.bid_close_at} size="lg" showLabel />
-              <p className="text-xs text-gray-500 mt-2">
-                Ferme le {new Date(deal.bid_close_at).toLocaleString('fr-CA')}
-              </p>
-            </div>
-          )}
-
-          {deal.fee_pct && (
-            <div className="card p-6">
-              <h2 className="font-semibold text-gray-900 mb-3">Frais Logeo</h2>
-              <dl className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Pourcentage</dt>
-                  <dd className="font-medium">{deal.fee_pct}%</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-gray-500">Plancher</dt>
-                  <dd className="font-medium">{formatMoney(deal.fee_minimum || 0)}</dd>
-                </div>
-                {winner && (
-                  <div className="flex justify-between pt-2 border-t border-gray-100">
-                    <dt className="text-gray-700 font-medium">Frais sur gagnant</dt>
-                    <dd className="font-bold text-[#C2410C]">
-                      {formatMoney(Math.max(Math.round(winner.amount * deal.fee_pct / 100), deal.fee_minimum || 0))}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </div>
-          )}
-
-          {canConfirmDeposit && (
-            <button onClick={() => setInteracModal('deposit')} className="btn-primary w-full">
-              Confirmer dépôt 25% Interac
-            </button>
-          )}
-
-          {canConfirmBalance && (
-            <button onClick={() => setInteracModal('balance')} className="btn-primary w-full">
-              Confirmer solde 75% Interac
-            </button>
-          )}
-
-          {deal.status === 'nogo' && deal.nogo_reason && (
-            <div className="card p-4 bg-red-50 border-red-200">
-              <p className="text-xs font-semibold text-red-900 mb-1">Motif du refus</p>
-              <p className="text-sm text-red-800">{deal.nogo_reason}</p>
-            </div>
-          )}
-
-          {deal.documents && Object.keys(deal.documents).length > 0 && (
-            <div className="card p-6">
-              <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <FileText className="h-4 w-4" /> Documents
-              </h2>
-              <ul className="text-sm space-y-1.5">
-                {Object.entries(deal.documents).map(([key, path]) => (
-                  <li key={key}>
-                    <a href={fileUrl(path)} target="_blank" rel="noreferrer"
-                       className="link-brand hover:underline">
-                      {key.replace(/_/g, ' ')}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+      {/* Détails propriété (tout débloqué pour admin) */}
+      <div className="mb-6">
+        <LockedFeatureGrid
+          permissions={{
+            canSeePhotos: true,
+            canSeeAddress: true,
+            canSeeDocuments: true,
+            canSeeCourtier: true,
+          }}
+          lockedHint="—"
+        />
       </div>
+
+      {/* Fiche partagée — admin voit tout */}
+      <DealFiche
+        deal={deal}
+        permissions={{
+          canSeeAddress: true,
+          canSeeFinancials: true,
+          canSeePhotos: true,
+          canSeeCourtier: true,
+          canSeeDocuments: true,
+          canSeeAdminMeta: true,
+        }}
+      />
+
+      {/* Bloc spécifique admin — liste des enchères + nogo reason si applicable */}
+      <div id="bids" className="card p-6 mb-6 mt-6">
+        <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <DollarSign className="h-4 w-4" /> Enchères ({bids?.length || 0})
+        </h2>
+        {!bids?.length ? (
+          <p className="text-sm text-gray-500 py-4">Aucune offre soumise.</p>
+        ) : (
+          <div className="space-y-2">
+            {bids.map((b) => (
+              <div
+                key={b.id}
+                className={`flex items-center justify-between p-3 rounded-lg ${
+                  b.status === 'winner' ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  {b.status === 'winner' && <Trophy className="h-4 w-4 text-amber-600" />}
+                  <div>
+                    <p className="font-medium text-sm">{b.acheteur_name}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(b.created_at).toLocaleString('fr-CA')}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold text-gray-900">{formatMoney(b.amount)}</span>
+                  <Badge>{b.status}</Badge>
+                  {b.payment_status !== 'pending' && (
+                    <span className="text-xs text-gray-500">{b.payment_status}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {deal.status === 'nogo' && deal.nogo_reason && (
+        <div className="card p-4 mb-6 bg-red-50 border-red-200">
+          <p className="text-xs font-semibold text-red-900 mb-1">Motif du refus</p>
+          <p className="text-sm text-red-800">{deal.nogo_reason}</p>
+        </div>
+      )}
 
       {/* Verdict Modal */}
       <Modal open={verdictModal === 'go'} onClose={() => setVerdictModal(null)} title="Publier le deal (GO)" size="md">
