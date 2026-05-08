@@ -689,7 +689,7 @@ async def list_pending(
     return [
         PendingApprovalRow(
             id=u.id, full_name=u.full_name, email=u.email,
-            role=u.role.value if hasattr(u.role, "value") else str(u.role),
+            role=u.role,
             phone=u.phone, created_at=u.created_at,
         ) for u in users
     ]

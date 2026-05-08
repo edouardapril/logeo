@@ -8,6 +8,8 @@ from app.models.deal_unit import DealUnit
 from app.models.deal_question import DealQuestion
 from app.models.deal_review import DealReview
 from app.models.sanction import UserSanction
+from app.models.regional_territory import RegionalTerritory
+from app.models.regional_partner_profile import RegionalPartnerProfile
 
 __all__ = [
     "User", "UserRole",
@@ -20,4 +22,6 @@ __all__ = [
     "DealQuestion",
     "DealReview",
     "UserSanction",
+    "RegionalTerritory",
+    "RegionalPartnerProfile",
 ]
