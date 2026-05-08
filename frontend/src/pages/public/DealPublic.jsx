@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Lock, MapPin, Users, ShieldCheck, ArrowRight, Building2,
   FileText, Camera, MessageSquare, Trophy, Clock, AlertOctagon, Sparkles, Info,
+  HelpCircle,
 } from 'lucide-react'
 import { publicDealApi, publicDealQuestionsApi } from '../../api/public'
 import Spinner from '../../components/ui/Spinner'
@@ -155,14 +156,22 @@ export default function DealPublic() {
                 />
               </p>
               <div className="flex items-center justify-center md:justify-end gap-3 text-xs text-gray-500 mt-1">
-                <span className="inline-flex items-center gap-1" title="Acheteurs ayant placé une offre active">
+                <span
+                  className="inline-flex items-center gap-1"
+                  title="Acheteurs ayant placé une enchère active sur ce deal."
+                >
                   <Trophy className="h-3 w-3" />
                   <AnimatedNumber value={live.liveBidders ?? deal.bidders_count} />
                   {' '}{(live.liveBidders ?? deal.bidders_count) > 1 ? 'offres déposées' : 'offre déposée'}
+                  <HelpCircle className="h-3 w-3 text-gray-400" />
                 </span>
-                <span className="inline-flex items-center gap-1" title="Investisseurs ayant signé le NDA">
+                <span
+                  className="inline-flex items-center gap-1"
+                  title="Acheteurs qualifiés ayant signé la NDA pour consulter le dossier complet (sans avoir forcément déposé d'offre)."
+                >
                   <ShieldCheck className="h-3 w-3" />
                   {deal.ndas_count} {deal.ndas_count > 1 ? 'investisseurs intéressés' : 'investisseur intéressé'}
+                  <HelpCircle className="h-3 w-3 text-gray-400" />
                 </span>
               </div>
             </div>

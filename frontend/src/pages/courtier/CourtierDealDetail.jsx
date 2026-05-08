@@ -512,15 +512,18 @@ export default function CourtierDealDetail() {
               les autres restent privées (post-NDA uniquement).
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-4">
-              {(deal.photo_paths || []).map((p, i) => {
-                const isCover = coverPath === p
-                const secRank = secondaryPaths.indexOf(p)
+              {(deal.photo_paths || []).map((displayUrl, i) => {
+                // Path BRUT (pour PATCH /teaser-selection — qui valide contre la DB)
+                // ; `displayUrl` est l'URL signée pour l'affichage. Liste parallèle.
+                const rawPath = (deal.photo_paths_raw || [])[i] || displayUrl
+                const isCover = coverPath === rawPath
+                const secRank = secondaryPaths.indexOf(rawPath)
                 const isSecondary = secRank >= 0
                 const secDisabled = !isSecondary && !isCover && secondaryPaths.length >= 2
                 return (
-                  <div key={p} className="relative">
+                  <div key={rawPath} className="relative">
                     <img
-                      src={fileUrl(p)}
+                      src={fileUrl(displayUrl)}
                       alt={`Photo ${i + 1}`}
                       className={`h-32 w-full object-cover rounded-lg ${
                         isCover ? 'ring-2 ring-amber-500' : isSecondary ? 'ring-2 ring-blue-500' : ''
@@ -541,7 +544,7 @@ export default function CourtierDealDetail() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (window.confirm('Supprimer cette photo ?')) deletePhotoMut.mutate(p)
+                            if (window.confirm('Supprimer cette photo ?')) deletePhotoMut.mutate(rawPath)
                           }}
                           aria-label="Supprimer la photo"
                           className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
@@ -551,7 +554,7 @@ export default function CourtierDealDetail() {
                         <div className="absolute bottom-1 inset-x-1 flex gap-1">
                           <button
                             type="button"
-                            onClick={() => onPickCover(p)}
+                            onClick={() => onPickCover(rawPath)}
                             className={`flex-1 text-[10px] font-semibold py-1 rounded transition ${
                               isCover
                                 ? 'bg-amber-500 text-white shadow'
@@ -562,7 +565,7 @@ export default function CourtierDealDetail() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => onToggleSecondary(p)}
+                            onClick={() => onToggleSecondary(rawPath)}
                             disabled={secDisabled}
                             className={`flex-1 text-[10px] font-semibold py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed ${
                               isSecondary

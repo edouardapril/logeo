@@ -181,6 +181,11 @@ class DealCourtierFull(DealTeaser):
     floor_price: int | None = None
     full_report_path: str | None = None
     photo_paths: list | None = None
+    # Paths bruts (non-signés) — nécessaires pour PATCH /teaser-selection qui
+    # valide contre les paths bruts en DB. `photo_paths` (au-dessus) est
+    # sérialisé en URLs signées pour l'affichage ; `photo_paths_raw` est la
+    # liste parallèle dans le même ordre, pour les call-sites de sélection.
+    photo_paths_raw: list | None = None
     documents: dict | None = None
     expenses: dict | None = None
     revenue_history: list | None = None

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  MapPin, Users, ShieldCheck, ArrowRight, Sparkles, AlertOctagon,
-  Info, Activity,
+  MapPin, ShieldCheck, ArrowRight, Sparkles, AlertOctagon,
+  Info, Activity, HelpCircle,
 } from 'lucide-react'
 import CountdownBoxes from '../ui/CountdownBoxes'
 import { fileUrl } from '../../utils/url'
@@ -172,14 +172,13 @@ export default function PublicDealCard({ deal, detailHref }) {
             </span>
           </div>
 
-          {/* Mesureur d'offres — état visuel discret pour créer du FOMO sans agressivité */}
+          {/* Mesureur d'offres — métrique unique pour les bids actifs (FOMO discret) */}
           <div
             className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md mb-2 ${
               offers > 0
                 ? 'bg-[#FFF7ED] border border-[#FDBA74]'
                 : 'bg-white/60 border border-[#FDBA74]/50'
             }`}
-            title={offers > 0 ? `${offers} offre${offers > 1 ? 's' : ''} déposée${offers > 1 ? 's' : ''}` : 'Aucune offre pour le moment'}
           >
             <span className="inline-flex items-center gap-1.5 text-[11px]">
               {offers > 0 ? (
@@ -200,16 +199,24 @@ export default function PublicDealCard({ deal, detailHref }) {
                 </>
               )}
             </span>
+            <HelpCircle
+              className="h-3 w-3 text-gray-400 flex-shrink-0"
+              aria-label="Aide"
+              title="Nombre d'acheteurs ayant placé une enchère active sur ce deal."
+            />
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-[#9A3412]/80">
-            <span className="inline-flex items-center gap-1" title="Acheteurs ayant placé une offre active">
-              <Users className="h-3 w-3" />
-              {offers} {offers > 1 ? 'offres déposées' : 'offre déposée'}
-            </span>
-            <span className="inline-flex items-center gap-1" title="Investisseurs ayant signé le NDA pour accéder au dossier complet">
+          {/* Investisseurs intéressés — distinct des offres : ont signé la NDA pour
+              accéder au dossier complet, mais n'ont pas encore (ou pas) déposé d'offre. */}
+          <div className="flex items-center justify-end text-[11px] text-[#9A3412]/80">
+            <span className="inline-flex items-center gap-1.5">
               <ShieldCheck className="h-3 w-3" />
               {deal.ndas_count} {deal.ndas_count > 1 ? 'investisseurs intéressés' : 'investisseur intéressé'}
+              <HelpCircle
+                className="h-3 w-3 text-gray-400"
+                aria-label="Aide"
+                title="Acheteurs qualifiés ayant signé la NDA pour consulter le dossier complet (ne dépose pas forcément une offre)."
+              />
             </span>
           </div>
         </div>

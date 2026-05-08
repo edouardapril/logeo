@@ -237,6 +237,9 @@ async def get_my_deal(
     return {
         **deal.__dict__,
         "is_locked": _is_locked_for_courtier(deal),
+        # Liste parallèle de paths bruts pour le panel de sélection teaser
+        # (le PATCH /teaser-selection valide contre les paths DB, pas les URLs signées).
+        "photo_paths_raw": list(deal.photo_paths or []),
     }
 
 
