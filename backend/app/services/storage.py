@@ -21,10 +21,35 @@ import uuid
 import re
 import httpx
 import logging
+import sys
+
+# ── BANNIÈRE DIAGNOSTIQUE — print() direct stdout au tout début, AVANT toute
+# ── lecture de settings ou de get_settings(). Bypass complet du système de
+# ── logging d'uvicorn pour garantir que la trace apparaît dans Railway logs.
+# ── Si ces lignes n'apparaissent pas dans `railway logs --tail`, c'est que
+# ── le module storage.py n'est tout simplement pas chargé au boot (très
+# ── improbable mais bon à confirmer).
+print("=" * 70, flush=True, file=sys.stderr)
+print("[STORAGE INIT] services/storage.py module en cours de chargement", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] STORAGE_BACKEND       = {os.getenv('STORAGE_BACKEND')!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] SUPABASE_URL          = {os.getenv('SUPABASE_URL')!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] SUPABASE_SERVICE_KEY  = {'set' if os.getenv('SUPABASE_SERVICE_KEY') else 'MISSING'}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] SUPABASE_BUCKET_DEALS = {os.getenv('SUPABASE_BUCKET_DEALS')!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] SUPABASE_BUCKET_DOCUMENTS = {os.getenv('SUPABASE_BUCKET_DOCUMENTS')!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] SUPABASE_BUCKET_PROFILES = {os.getenv('SUPABASE_BUCKET_PROFILES')!r}", flush=True, file=sys.stderr)
+print("=" * 70, flush=True, file=sys.stderr)
+
 from app.config import get_settings
 
 settings = get_settings()
 log = logging.getLogger(__name__)
+
+# Diagnostic complémentaire : ce que pydantic-settings A LU (peut différer
+# de ce que os.environ contient si pydantic gère mal le mapping de noms).
+print(f"[STORAGE INIT] settings.storage_backend (pydantic) = {settings.storage_backend!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] settings.supabase_url     (pydantic) = {settings.supabase_url!r}", flush=True, file=sys.stderr)
+print(f"[STORAGE INIT] settings.supabase_service_key (pydantic, set?) = {bool(settings.supabase_service_key)}", flush=True, file=sys.stderr)
+print("=" * 70, flush=True, file=sys.stderr)
 
 LOCAL_DIR = "uploads"
 
@@ -115,12 +140,20 @@ def save(content: bytes, filename: str, kind: str, subfolder: str = "",
     sub = subfolder.strip("/")
     rel_key = f"{sub}/{safe}" if sub else safe
 
-    if _is_supabase():
+    # Diagnostic per-call : print direct stdout (pas log.info) pour qu'on
+    # le voie même si le système de logging uvicorn filtre INFO.
+    is_sb = _is_supabase()
+    print(
+        f"[STORAGE SAVE] is_supabase={is_sb} "
+        f"backend(env={os.getenv('STORAGE_BACKEND')!r}, settings={settings.storage_backend!r}) "
+        f"url(env_set={bool(os.getenv('SUPABASE_URL'))}, settings_set={bool(settings.supabase_url)}) "
+        f"key_set={bool(os.getenv('SUPABASE_SERVICE_KEY') or settings.supabase_service_key)} "
+        f"kind={kind} rel_key={rel_key!r} size={len(content)}",
+        flush=True, file=sys.stderr,
+    )
+
+    if is_sb:
         bucket = _bucket(kind)
-        # Log explicite — visible dans Railway logs pour confirmer en live
-        # que les uploads passent bien par Supabase. Sans ce log, impossible
-        # de différencier "config OK + bucket cassé" et "config local"
-        # une fois en prod.
         log.info("storage.save SUPABASE bucket=%s key=%s size=%d", bucket, rel_key, len(content))
         url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{rel_key}"
         headers = _supabase_headers() | {
