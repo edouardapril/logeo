@@ -173,6 +173,48 @@ class DealAdminView(DealFull):
     model_config = {"from_attributes": True}
 
 
+# Vue complète pour le courtier propriétaire — fiche pleine + flag édition.
+# Distincte de DealFull car pas de bloc courtier_* (le courtier est lui-même).
+class DealCourtierFull(DealTeaser):
+    address_private: str
+    floor_price: int | None = None
+    full_report_path: str | None = None
+    photo_paths: list | None = None
+    documents: dict | None = None
+    expenses: dict | None = None
+    revenue_history: list | None = None
+    zoning: str | None = None
+    easements: str | None = None
+    work_history: list | None = None
+    material_disclosures: dict | None = None
+    virtual_tour_url: str | None = None
+    inspection_report_path: str | None = None
+    cert_localisation_date: datetime | None = None
+    visit_notes: str | None = None
+    nogo_reason: str | None = None
+    fee_pct: float | None = None
+    fee_minimum: int | None = None
+    is_locked: bool = False  # True après démarrage des enchères → fiche read-only
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer('photo_paths')
+    def _ser_photo_paths(self, v):
+        return storage_svc.to_signed_urls(v)
+
+    @field_serializer('full_report_path')
+    def _ser_full_report_path(self, v):
+        return storage_svc.to_signed_url(v)
+
+    @field_serializer('inspection_report_path')
+    def _ser_inspection_report_path(self, v):
+        return storage_svc.to_signed_url(v)
+
+    @field_serializer('documents')
+    def _ser_documents(self, v):
+        return storage_svc.to_signed_url_values(v)
+
+
 class DealListItem(BaseModel):
     id: uuid.UUID
     status: DealStatus

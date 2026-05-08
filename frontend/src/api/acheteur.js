@@ -1,6 +1,9 @@
 import client from './client'
 
-export const listDealsApi = () => client.get('/acheteur/deals').then(r => r.data)
+export const listDealsApi = (params = {}) =>
+  client.get('/acheteur/deals', { params }).then(r => r.data)
+export const listActiveRegionsApi = () =>
+  client.get('/acheteur/deals/regions').then(r => r.data)
 export const getDealTeaserApi = (dealId) => client.get(`/acheteur/deals/${dealId}`).then(r => r.data)
 export const getDealFullApi = (dealId) => client.get(`/acheteur/deals/${dealId}/full`).then(r => r.data)
 export const signNdaApi = (dealId, consents) =>

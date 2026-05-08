@@ -1,37 +1,32 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, Sparkles, MapPin } from 'lucide-react'
-import { listDealsApi } from '../../api/acheteur'
+import { Building2, Sparkles } from 'lucide-react'
+import { listDealsApi, listActiveRegionsApi } from '../../api/acheteur'
 import DealCard from '../../components/deal/DealCard'
 import Spinner from '../../components/ui/Spinner'
 import OnboardingProgress from '../../components/acheteur/OnboardingProgress'
-import { REGIONS, regionFromDeal } from '../../utils/constants'
+import { Select } from '../../components/ui/Input'
+import { PROPERTY_TYPES } from '../../utils/constants'
+import { regionLabel } from '../../utils/quebec'
 
 export default function DealList() {
   const [region, setRegion] = useState('')
+  const [propertyType, setPropertyType] = useState('')
 
   const { data: deals, isLoading, error } = useQuery({
-    queryKey: ['acheteur', 'deals'],
-    queryFn: listDealsApi,
+    queryKey: ['acheteur', 'deals', region, propertyType],
+    queryFn: () => listDealsApi({
+      region: region || undefined,
+      property_type: propertyType || undefined,
+    }),
     refetchInterval: 30_000,
   })
 
-  const dealsByRegion = useMemo(() => {
-    if (!deals) return null
-    const counts = REGIONS.reduce((a, r) => ({ ...a, [r.value]: 0 }), {})
-    deals.forEach(d => {
-      const r = regionFromDeal(d) || 'autre'
-      counts[r] = (counts[r] || 0) + 1
-      counts[''] = (counts[''] || 0) + 1
-    })
-    return counts
-  }, [deals])
-
-  const filtered = useMemo(() => {
-    if (!deals) return []
-    if (!region) return deals
-    return deals.filter(d => regionFromDeal(d) === region)
-  }, [deals, region])
+  const { data: activeRegions } = useQuery({
+    queryKey: ['acheteur', 'deals', 'regions'],
+    queryFn: listActiveRegionsApi,
+    enabled: !error,
+  })
 
   if (isLoading) return <Spinner label="Chargement des deals..." />
 
@@ -48,6 +43,19 @@ export default function DealList() {
     )
   }
 
+  const regionOptions = [
+    { value: '', label: 'Toutes les régions' },
+    ...(activeRegions || []).map(r => ({
+      value: r.region,
+      label: `${regionLabel(r.region)} (${r.count})`,
+    })),
+  ]
+
+  const propertyTypeOptions = [
+    { value: '', label: 'Tous les types' },
+    ...PROPERTY_TYPES,
+  ]
+
   return (
     <div>
       <div className="mb-6">
@@ -60,48 +68,47 @@ export default function DealList() {
       {/* Barre de progression onboarding (sprint UX item 2) */}
       <OnboardingProgress />
 
-      {/* Filtre régions */}
-      {deals?.length > 0 && (
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          <MapPin className="h-4 w-4 text-gray-400" />
-          {REGIONS.map(r => {
-            const count = dealsByRegion?.[r.value] || 0
-            const active = region === r.value
-            return (
-              <button
-                key={r.value || 'all'}
-                onClick={() => setRegion(r.value)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors flex items-center gap-1.5 ${
-                  active
-                    ? 'bg-[#EA580C] text-white'
-                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                } ${count === 0 && r.value ? 'opacity-40' : ''}`}
-              >
-                {r.label}
-                <span className={`text-xs px-1.5 rounded-full ${
-                  active ? 'bg-white/25' : 'bg-gray-100 text-gray-600'
-                }`}>{count}</span>
-              </button>
-            )
-          })}
+      {/* Filtres */}
+      <div className="card p-4 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Région"
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            options={regionOptions}
+          />
+          <Select
+            label="Type d'immeuble"
+            value={propertyType}
+            onChange={(e) => setPropertyType(e.target.value)}
+            options={propertyTypeOptions}
+          />
         </div>
-      )}
+        {(region || propertyType) && (
+          <button
+            onClick={() => { setRegion(''); setPropertyType('') }}
+            className="text-xs link-brand font-medium mt-3"
+          >
+            ↺ Réinitialiser les filtres
+          </button>
+        )}
+      </div>
 
-      {!filtered.length ? (
+      {!deals?.length ? (
         <div className="card p-12 text-center">
           <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-3" />
           <h3 className="font-semibold text-gray-900 mb-1">
-            {deals?.length ? 'Aucun deal dans cette région' : 'Aucun deal actif pour le moment'}
+            {(region || propertyType) ? 'Aucun deal pour ces critères' : 'Aucun deal actif pour le moment'}
           </h3>
           <p className="text-sm text-gray-500">
-            {deals?.length
-              ? 'Essayez une autre région ou retirez le filtre.'
+            {(region || propertyType)
+              ? 'Essayez d\'autres filtres ou retirez-les pour voir tous les deals.'
               : 'Vous recevrez un email dès qu\'un nouveau deal sera publié.'}
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(deal => (
+          {deals.map(deal => (
             <DealCard key={deal.id} deal={deal} to={`/acheteur/deals/${deal.id}`} />
           ))}
         </div>

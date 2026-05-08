@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
@@ -63,16 +63,39 @@ async def _has_signed_nda(deal_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSessi
 
 @router.get("/deals", response_model=list[DealTeaser])
 async def list_available_deals(
+    region: str | None = Query(default=None),
+    property_type: str | None = Query(default=None),
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
 ):
     _require_qualified(current_user)
-    result = await db.execute(
-        select(Deal)
-        .where(Deal.status.in_([DealStatus.bid]))
-        .order_by(Deal.bid_close_at.asc())
-    )
+    query = select(Deal).where(Deal.status.in_([DealStatus.bid]))
+    if region:
+        query = query.where(Deal.region == region)
+    if property_type:
+        query = query.where(Deal.property_type == property_type)
+    result = await db.execute(query.order_by(Deal.bid_close_at.asc()))
     return result.scalars().all()
+
+
+@router.get("/deals/regions")
+async def list_active_regions(
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """Régions administratives où il y a au moins un deal en enchère active.
+
+    Utilisé par le filtre frontend du listing — évite de hardcoder la liste
+    côté UI et reflète l'état réel du marketplace.
+    """
+    _require_qualified(current_user)
+    res = await db.execute(
+        select(Deal.region, func.count(Deal.id))
+        .where(Deal.status == DealStatus.bid, Deal.region.isnot(None))
+        .group_by(Deal.region)
+        .order_by(Deal.region.asc())
+    )
+    return [{"region": r, "count": int(c)} for r, c in res.all() if r]
 
 
 @router.get("/deals/{deal_id}", response_model=DealTeaser)

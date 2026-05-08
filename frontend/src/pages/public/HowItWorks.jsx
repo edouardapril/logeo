@@ -23,7 +23,7 @@ const ACHETEUR_STEPS = [
   { icon: Trophy, title: 'Enchérissez anonymement (proxy bid)',
     body: "Vous fixez votre maximum. Le système enchérit pour vous à l'incrément +5 000 $ jusqu'à votre plafond. Aucun nom ni montant n'est public." },
   { icon: Coins, title: 'Gagnez et complétez votre due diligence',
-    body: "Si gagnant, dépôt 25 % débité automatiquement. 24h pour confirmer la due diligence puis solde 75 %. Logeo gère le reste." },
+    body: "Si gagnant, dépôt 25 % débité automatiquement. 5 jours pour confirmer la due diligence puis solde 75 %. Logeo gère le reste." },
 ]
 
 const FAQ = [
@@ -37,7 +37,7 @@ const FAQ = [
   },
   {
     q: "Quels types de propriétés sont acceptés ?",
-    a: "Logeo se concentre sur les immeubles de revenus : multilogement 2-6, 7-24, 24+ logements, projets multifamiliaux et terrains constructibles à plex. Aucun unifamilial ou condo personnel.",
+    a: "Logeo accepte 6 catégories : Terrain, Résidentiel, Petit Plex (2-5 logements), Multilogement (6-24 logements), Multilogement (24+ logements), et « Autre » pour les cas particuliers. Pas d'unifamilial ni de condo personnel.",
   },
   {
     q: "Comment sont protégés mes paiements ?",

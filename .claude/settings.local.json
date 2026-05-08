@@ -14,7 +14,13 @@
       "Bash(./venv/Scripts/python.exe -m pip install -q supabase)",
       "Bash(./venv/Scripts/python.exe -c ' *)",
       "Bash(./venv/Scripts/python.exe -c \"from app.main import app; print\\('routes:', len\\(app.routes\\)\\)\")",
-      "Bash(./venv/Scripts/python.exe -c ' *à)"
+      "Bash(./venv/Scripts/python.exe -c ' *à)",
+      "Bash(xargs -n1 basename)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(python *)",
+      "Bash(node -e \"const fs=require\\('fs'\\);['src/pages/courtier/CourtierDashboard.jsx','src/pages/courtier/CourtierDealDetail.jsx','src/pages/acheteur/DealList.jsx','src/pages/public/HowItWorks.jsx','src/api/acheteur.js','src/api/courtier.js'].forEach\\(p=>{try{require\\('@babel/parser'\\).parse\\(fs.readFileSync\\(p,'utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK',p\\)}catch\\(e\\){console.error\\('FAIL',p,e.message\\)}}\\)\")"
     ]
   }
 }

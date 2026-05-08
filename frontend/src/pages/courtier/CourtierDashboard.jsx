@@ -51,9 +51,14 @@ function DealCard360({ d }) {
             </Link>
             <Badge status={d.status} />
           </div>
-          <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
-            <MapPin className="h-3 w-3" />
-            {d.city}{d.region && <span>· {regionLabel(d.region)}</span>}
+          {d.address_private && (
+            <p className="text-sm font-medium text-gray-800 flex items-start gap-1.5 mt-1">
+              <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0 mt-0.5" />
+              <span className="break-words">{d.address_private}</span>
+            </p>
+          )}
+          <p className="text-xs text-gray-500 mt-0.5 ml-5">
+            {d.city}{d.region && <span> · {regionLabel(d.region)}</span>}
           </p>
         </div>
         {d.bid_close_at && d.status === 'bid' && (

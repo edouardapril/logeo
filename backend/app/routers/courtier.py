@@ -8,7 +8,10 @@ from app.models.user import User
 from app.models.deal import Deal, DealStatus, PropertyType
 from app.models.deal_unit import DealUnit
 from app.models.deal_question import DealQuestion
-from app.schemas.deal import DealSubmit, DealTeaser, DealListItem, DealPatch, TeaserSelection
+from app.schemas.deal import (
+    DealSubmit, DealTeaser, DealListItem, DealPatch, TeaserSelection,
+    DealCourtierFull,
+)
 from app.schemas.unit import UnitWrite, UnitView
 from app.schemas.question import QuestionView, QuestionAnswer
 from app.services.auth import require_courtier
@@ -90,6 +93,7 @@ async def list_my_deals_enriched(
             "id": str(d.id),
             "city": d.city,
             "region": d.region,
+            "address_private": d.address_private,
             "property_type": d.property_type.value if hasattr(d.property_type, "value") else str(d.property_type),
             "status": d.status.value if hasattr(d.status, "value") else str(d.status),
             "floor_price": d.floor_price,
@@ -103,7 +107,7 @@ async def list_my_deals_enriched(
     return out
 
 
-@router.get("/deals/{deal_id}", response_model=DealTeaser)
+@router.get("/deals/{deal_id}", response_model=DealCourtierFull)
 async def get_my_deal(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_courtier),
@@ -115,7 +119,10 @@ async def get_my_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    return deal
+    return {
+        **deal.__dict__,
+        "is_locked": _is_locked_for_courtier(deal),
+    }
 
 
 @router.post("/deals", response_model=DealTeaser, status_code=201)
@@ -172,8 +179,7 @@ async def upload_documents(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    if deal.status not in (DealStatus.draft, DealStatus.analyse):
-        raise HTTPException(status_code=400, detail="Documents ne peuvent être modifiés à ce stade")
+    _assert_editable(deal)
 
     docs = deal.documents or {}
     subfolder = f"deals/{deal_id}"
@@ -223,6 +229,7 @@ async def upload_photos(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
+    _assert_editable(deal)
 
     existing = list(deal.photo_paths or [])
     if len(existing) + len(files) > MAX_PHOTOS:
@@ -277,6 +284,7 @@ async def set_teaser_selection(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
+    _assert_editable(deal)
 
     photo_paths = list(deal.photo_paths or [])
     if not photo_paths:
@@ -350,6 +358,7 @@ async def delete_photo(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
+    _assert_editable(deal)
 
     photos = list(deal.photo_paths or [])
     if path not in photos:
@@ -431,6 +440,23 @@ async def _load_owned_deal(deal_id: uuid.UUID, user: User, db: AsyncSession) -> 
     return deal
 
 
+# Statuts pendant lesquels le courtier peut encore éditer la fiche / documentation.
+# Toute autre valeur (bid, intro, pa_signed, auction_ended, nogo) → fiche verrouillée.
+EDITABLE_DEAL_STATUSES = (DealStatus.draft, DealStatus.analyse)
+
+
+def _is_locked_for_courtier(deal: Deal) -> bool:
+    return deal.status not in EDITABLE_DEAL_STATUSES
+
+
+def _assert_editable(deal: Deal) -> None:
+    if _is_locked_for_courtier(deal):
+        raise HTTPException(
+            status_code=403,
+            detail="Fiche verrouillée — les enchères ont commencé, lecture seule.",
+        )
+
+
 @router.patch("/deals/{deal_id}", response_model=DealTeaser)
 async def patch_deal(
     deal_id: uuid.UUID,
@@ -439,8 +465,7 @@ async def patch_deal(
     db: AsyncSession = Depends(get_db),
 ):
     deal = await _load_owned_deal(deal_id, current_user, db)
-    if deal.status not in (DealStatus.draft, DealStatus.analyse, DealStatus.bid):
-        raise HTTPException(status_code=400, detail="Deal non éditable à ce stade")
+    _assert_editable(deal)
     data = payload.model_dump(exclude_unset=True)
     # floor_price ignoré côté courtier — réservé admin
     data.pop("floor_price", None)
@@ -461,6 +486,7 @@ async def upload_inspection_report(
     db: AsyncSession = Depends(get_db),
 ):
     deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     content = await file.read()
     path = save_uploaded_file(content, file.filename, f"deals/{deal_id}/inspection")
     deal.inspection_report_path = path
@@ -490,7 +516,8 @@ async def create_unit(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_owned_deal(deal_id, current_user, db)
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     unit = DealUnit(deal_id=deal_id, **payload.model_dump())
     db.add(unit)
     await db.flush()
@@ -505,7 +532,8 @@ async def update_unit(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_owned_deal(deal_id, current_user, db)
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     res = await db.execute(
         select(DealUnit).where(DealUnit.id == unit_id, DealUnit.deal_id == deal_id)
     )
@@ -525,7 +553,8 @@ async def delete_unit(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_owned_deal(deal_id, current_user, db)
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     res = await db.execute(
         select(DealUnit).where(DealUnit.id == unit_id, DealUnit.deal_id == deal_id)
     )
@@ -545,7 +574,8 @@ async def upload_unit_photos(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_owned_deal(deal_id, current_user, db)
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     res = await db.execute(
         select(DealUnit).where(DealUnit.id == unit_id, DealUnit.deal_id == deal_id)
     )
@@ -577,7 +607,8 @@ async def upload_unit_lease(
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_owned_deal(deal_id, current_user, db)
+    deal = await _load_owned_deal(deal_id, current_user, db)
+    _assert_editable(deal)
     res = await db.execute(
         select(DealUnit).where(DealUnit.id == unit_id, DealUnit.deal_id == deal_id)
     )
