@@ -14,7 +14,7 @@ from app.schemas.deal import (
 )
 from app.schemas.unit import UnitWrite, UnitView
 from app.schemas.question import QuestionView, QuestionAnswer
-from app.services.auth import require_courtier
+from app.services.auth import require_courtier, block_in_impersonation
 from app.services.pdf import save_uploaded_file
 from app.services import storage as storage_svc
 from app.services import watermark as watermark_svc
@@ -248,6 +248,7 @@ async def submit_deal(
     payload: DealSubmit,
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     if not payload.postal_code or not payload.postal_code.strip():
         raise HTTPException(status_code=400, detail="Code postal requis")
@@ -515,6 +516,7 @@ async def upload_pa(
     pa_file: UploadFile = File(...),
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     """Upload de la promesse d'achat signée - déclenche la clôture du deal."""
     result = await db.execute(
@@ -762,6 +764,7 @@ async def answer_question(
     payload: QuestionAnswer,
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     await _load_owned_deal(deal_id, current_user, db)
     res = await db.execute(

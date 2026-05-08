@@ -11,6 +11,7 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminUsers from './pages/admin/AdminUsers'
 import AdminDeals from './pages/admin/AdminDeals'
 import AdminDealDetail from './pages/admin/AdminDealDetail'
+import AdminMarketplace from './pages/admin/AdminMarketplace'
 import AdminPayments from './pages/admin/AdminPayments'
 import AdminSanctions from './pages/admin/AdminSanctions'
 import AdminRevenues from './pages/admin/AdminRevenues'
@@ -69,6 +70,7 @@ export default function App() {
         <Route element={<ProtectedRoute roles={['admin']} />}>
           <Route element={<Layout />}>
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/marketplace" element={<AdminMarketplace />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/deals" element={<AdminDeals />} />
             <Route path="/admin/deals/:dealId" element={<AdminDealDetail />} />

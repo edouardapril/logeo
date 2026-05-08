@@ -22,7 +22,7 @@ from app.schemas.payment import (
     SetupIntentResponse, ConfirmPaymentMethodRequest, PaymentMethodView,
     FeeQuote, PaymentView,
 )
-from app.services.auth import require_acheteur
+from app.services.auth import require_acheteur, block_in_impersonation
 from app.services import email as email_service
 from app.services import payment_service
 from app.services.fee import compute_fees
@@ -126,6 +126,7 @@ async def sign_nda(
     request: Request,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
 
@@ -238,6 +239,7 @@ async def sign_engagement(
     payload: BidEngagementSign,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     """Signature de l'engagement de paiement des frais Logeo - requis avant le 1er bid."""
     _require_qualified(current_user)
@@ -256,6 +258,7 @@ async def place_bid(
     request: Request,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
 
@@ -508,6 +511,7 @@ async def stripe_diag(
 async def create_setup_intent(
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     import logging
     import stripe
@@ -567,6 +571,7 @@ async def confirm_payment_method(
     payload: ConfirmPaymentMethodRequest,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     info = await payment_service.save_payment_method(
         current_user, payload.payment_method_id, db
@@ -584,6 +589,7 @@ async def confirm_payment_method(
 async def delete_payment_method(
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     await payment_service.remove_payment_method(current_user, db)
     return PaymentMethodView(has_card=False)
@@ -668,6 +674,7 @@ async def due_diligence_complete(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     """Acheteur gagnant déclare sa due diligence terminée → débit du solde 75%."""
     deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
@@ -756,6 +763,7 @@ async def create_question(
     payload: QuestionCreate,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
     if not await _has_signed_nda(deal_id, current_user.id, db):
@@ -806,6 +814,7 @@ async def request_visit(
     payload: VisitRequest,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
+    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
     if not await _has_signed_nda(deal_id, current_user.id, db):

@@ -7,15 +7,18 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Logo from '../ui/Logo'
+import ImpersonationBanner from './ImpersonationBanner'
+import ImpersonatePicker from '../admin/ImpersonatePicker'
 
 const NAV_BY_ROLE = {
   admin: [
-    { to: '/admin',           label: 'Tableau de bord',   icon: LayoutDashboard },
-    { to: '/admin/deals',     label: 'Deals',             icon: Building2 },
-    { to: '/admin/users',     label: 'Utilisateurs',      icon: Users },
-    { to: '/admin/payments',  label: 'Paiements',         icon: Receipt },
-    { to: '/admin/revenus',   label: 'Revenus',           icon: TrendingUp },
-    { to: '/admin/sanctions', label: 'Sanctions',         icon: ShieldOff },
+    { to: '/admin',             label: 'Tableau de bord',   icon: LayoutDashboard },
+    { to: '/admin/marketplace', label: 'Marketplace',       icon: Search },
+    { to: '/admin/deals',       label: 'Deals',             icon: Building2 },
+    { to: '/admin/users',       label: 'Utilisateurs',      icon: Users },
+    { to: '/admin/payments',    label: 'Paiements',         icon: Receipt },
+    { to: '/admin/revenus',     label: 'Revenus',           icon: TrendingUp },
+    { to: '/admin/sanctions',   label: 'Sanctions',         icon: ShieldOff },
   ],
   courtier: [
     { to: '/courtier',             label: 'Tableau de bord',   icon: LayoutDashboard },
@@ -41,7 +44,7 @@ const ROLE_LABEL = {
 }
 
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user, logout, isImpersonating } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const roleItems = NAV_BY_ROLE[user?.role] || []
@@ -128,6 +131,11 @@ export default function Layout() {
                 {label}
               </NavLink>
             ))}
+            {/* « Voir en tant que » : visible uniquement pour l'admin réel
+                (pas en mode impersonation lui-même — pas de cascade). */}
+            {user?.role === 'admin' && !isImpersonating && (
+              <ImpersonatePicker />
+            )}
           </div>
         </nav>
 
@@ -143,6 +151,7 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 overflow-y-auto">
+        <ImpersonationBanner />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 md:px-8 py-6 md:py-8">
           <Outlet />
         </div>

@@ -55,6 +55,14 @@ export const createSanctionApi = (payload) =>
 export const liftSanctionApi = (sanctionId, lifted_reason) =>
   client.post(`/admin/sanctions/${sanctionId}/lift`, { lifted_reason }).then(r => r.data)
 
+// Impersonation (mode "voir en tant que")
+export const impersonateUserApi = (userId) =>
+  client.post('/admin/impersonate', { user_id: userId }).then(r => r.data)
+export const impersonateExitApi = () =>
+  client.post('/admin/impersonate/exit').then(r => r.data)
+export const impersonateCandidatesApi = (q = '') =>
+  client.get('/admin/impersonate/candidates', { params: q ? { q } : {} }).then(r => r.data)
+
 // Revenues (sprint final item 6)
 export const adminRevenuesApi = (months = 12) =>
   client.get('/admin/revenues', { params: { months } }).then(r => r.data)

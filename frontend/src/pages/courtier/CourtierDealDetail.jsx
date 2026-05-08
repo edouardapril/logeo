@@ -4,8 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   ArrowLeft, Upload, FileText, AlertTriangle, Clock, MessageSquare, Send, RotateCcw,
-  Lock, MapPin, Building, Hammer, Receipt, Video,
-  Image as ImageIcon, Star, X, Save,
+  Lock, Image as ImageIcon, Star, X, Save,
 } from 'lucide-react'
 import {
   courtierGetDealApi, uploadPaApi,
@@ -21,20 +20,7 @@ import ReviewSection from '../../components/deal/ReviewSection'
 import { useAuth } from '../../contexts/AuthContext'
 import { listReviewsForDealApi } from '../../api/reviews'
 import { fileUrl } from '../../utils/url'
-
-const TRI_LABEL = { yes: 'Oui', no: 'Non', unknown: 'Inconnu' }
-const WORK_LABEL = {
-  toiture: 'Toiture', fondation: 'Fondation', electrique: 'Électrique',
-  plomberie: 'Plomberie', fenetres: 'Fenêtres', chauffage: 'Chauffage',
-}
-const EXPENSES_LABEL = {
-  taxes_municipales: 'Taxes municipales', taxes_scolaires: 'Taxes scolaires',
-  assurances: 'Assurances', entretien: 'Entretien',
-  frais_gestion: 'Frais de gestion', autres: 'Autres',
-}
-
-const formatMoney = (n) =>
-  new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
+import DealFiche from '../../components/deal/DealFiche'
 
 export default function CourtierDealDetail() {
   const { dealId } = useParams()
@@ -267,211 +253,18 @@ export default function CourtierDealDetail() {
         </div>
       )}
 
-      {/* Fiche complète — tous les champs visibles par l'admin/acheteur post-NDA */}
-      <div className="card p-6 mb-6">
-        <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Building className="h-4 w-4" /> Informations propriété
-        </h2>
-        <dl className="grid grid-cols-2 gap-4 text-sm">
-          <div className="col-span-2">
-            <dt className="text-gray-500 text-xs">Adresse complète</dt>
-            <dd className="font-medium flex items-center gap-1">
-              <MapPin className="h-3 w-3 text-red-500" /> {deal.address_private}
-            </dd>
-          </div>
-          {deal.postal_code && (
-            <div>
-              <dt className="text-gray-500 text-xs">Code postal</dt>
-              <dd className="font-medium">{deal.postal_code}</dd>
-            </div>
-          )}
-          {deal.region && (
-            <div>
-              <dt className="text-gray-500 text-xs">Région</dt>
-              <dd className="font-medium">{deal.region}</dd>
-            </div>
-          )}
-          {deal.mrc && (
-            <div>
-              <dt className="text-gray-500 text-xs">MRC</dt>
-              <dd className="font-medium">{deal.mrc}</dd>
-            </div>
-          )}
-          {deal.floor_price != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Prix plancher</dt>
-              <dd className="font-medium">{formatMoney(deal.floor_price)}</dd>
-            </div>
-          )}
-          {deal.gross_revenue != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Revenus bruts</dt>
-              <dd className="font-medium">{formatMoney(deal.gross_revenue)}</dd>
-            </div>
-          )}
-          {deal.net_revenue != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Revenus nets</dt>
-              <dd className="font-medium">{formatMoney(deal.net_revenue)}</dd>
-            </div>
-          )}
-          {deal.yield_pct != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Rendement</dt>
-              <dd className="font-medium text-emerald-600">{deal.yield_pct.toFixed(2)}%</dd>
-            </div>
-          )}
-          {deal.num_units != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Logements</dt>
-              <dd className="font-medium">{deal.num_units}</dd>
-            </div>
-          )}
-          {deal.year_built != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Année de construction</dt>
-              <dd className="font-medium">{deal.year_built}</dd>
-            </div>
-          )}
-          {deal.total_area_sqft != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Superficie totale</dt>
-              <dd className="font-medium">{deal.total_area_sqft} pi²</dd>
-            </div>
-          )}
-          {deal.municipal_evaluation != null && (
-            <div>
-              <dt className="text-gray-500 text-xs">Évaluation municipale</dt>
-              <dd className="font-medium">{formatMoney(deal.municipal_evaluation)}</dd>
-            </div>
-          )}
-          {deal.zoning && (
-            <div>
-              <dt className="text-gray-500 text-xs">Zonage</dt>
-              <dd className="font-medium">{deal.zoning}</dd>
-            </div>
-          )}
-          {deal.tax_roll_date && (
-            <div>
-              <dt className="text-gray-500 text-xs">Date du rôle d'évaluation</dt>
-              <dd className="font-medium">{new Date(deal.tax_roll_date).toLocaleDateString('fr-CA')}</dd>
-            </div>
-          )}
-        </dl>
-
-        {deal.teaser_text && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <dt className="text-gray-500 text-xs mb-1">Teaser public</dt>
-            <p className="text-sm text-gray-700 whitespace-pre-line">{deal.teaser_text}</p>
-          </div>
-        )}
-
-        {deal.easements && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <dt className="text-gray-500 text-xs mb-1">Servitudes</dt>
-            <p className="text-sm text-gray-700 whitespace-pre-line">{deal.easements}</p>
-          </div>
-        )}
-
-        {deal.visit_notes && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <dt className="text-gray-500 text-xs mb-1">Notes de visite</dt>
-            <p className="text-sm text-gray-700 whitespace-pre-line">{deal.visit_notes}</p>
-          </div>
-        )}
-
-        {deal.virtual_tour_url && (
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <dt className="text-gray-500 text-xs mb-1 flex items-center gap-1">
-              <Video className="h-3 w-3" /> Visite virtuelle
-            </dt>
-            <a href={deal.virtual_tour_url} target="_blank" rel="noreferrer" className="link-brand text-sm">
-              {deal.virtual_tour_url}
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Dépenses */}
-      {deal.expenses && Object.values(deal.expenses).some(v => v) && (
-        <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Receipt className="h-4 w-4" /> Dépenses annuelles
-          </h2>
-          <dl className="grid grid-cols-2 gap-4 text-sm">
-            {Object.entries(deal.expenses).map(([k, v]) =>
-              v ? (
-                <div key={k}>
-                  <dt className="text-gray-500 text-xs">{EXPENSES_LABEL[k] || k}</dt>
-                  <dd className="font-medium">{formatMoney(Number(v))}</dd>
-                </div>
-              ) : null
-            )}
-          </dl>
-        </div>
-      )}
-
-      {/* Travaux */}
-      {Array.isArray(deal.work_history) && deal.work_history.length > 0 && (
-        <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Hammer className="h-4 w-4" /> Historique des travaux
-          </h2>
-          <ul className="space-y-2 text-sm">
-            {deal.work_history.map((w, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <span className="font-medium min-w-[120px]">{WORK_LABEL[w.category] || w.category}</span>
-                <span className="text-gray-700">{w.year || '—'}{w.note ? ` · ${w.note}` : ''}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Divulgations matérielles */}
-      {deal.material_disclosures && Object.values(deal.material_disclosures).some(Boolean) && (
-        <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Divulgations matérielles</h2>
-          <dl className="grid grid-cols-2 gap-4 text-sm">
-            {deal.material_disclosures.asbestos && (
-              <div>
-                <dt className="text-gray-500 text-xs">Amiante</dt>
-                <dd className="font-medium">{TRI_LABEL[deal.material_disclosures.asbestos] || deal.material_disclosures.asbestos}</dd>
-              </div>
-            )}
-            {deal.material_disclosures.pyrite && (
-              <div>
-                <dt className="text-gray-500 text-xs">Pyrite</dt>
-                <dd className="font-medium">{TRI_LABEL[deal.material_disclosures.pyrite] || deal.material_disclosures.pyrite}</dd>
-              </div>
-            )}
-            {deal.material_disclosures.zoning_confirmed && (
-              <div>
-                <dt className="text-gray-500 text-xs">Zonage confirmé</dt>
-                <dd className="font-medium">{TRI_LABEL[deal.material_disclosures.zoning_confirmed] || deal.material_disclosures.zoning_confirmed}</dd>
-              </div>
-            )}
-          </dl>
-        </div>
-      )}
-
-      {/* Documents */}
-      {deal.documents && Object.keys(deal.documents).length > 0 && (
-        <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <FileText className="h-4 w-4" /> Documents
-          </h2>
-          <ul className="text-sm space-y-1.5">
-            {Object.entries(deal.documents).map(([key, path]) => (
-              <li key={key}>
-                <a href={fileUrl(path)} target="_blank" rel="noreferrer" className="link-brand hover:underline">
-                  {key.replace(/_/g, ' ')}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Fiche partagée — visuel acheteur post-NDA, sections rôle-aware */}
+      <DealFiche
+        deal={deal}
+        permissions={{
+          canSeeAddress: true,        // owner voit son adresse
+          canSeeFinancials: true,
+          canSeePhotos: false,        // gérées par le panel courtier-spécifique ci-dessous
+          canSeeCourtier: false,      // pas de bloc « courtier » à soi-même
+          canSeeDocuments: true,
+          canSeeAdminMeta: true,      // frais Logeo applicables
+        }}
+      />
 
       {/* Photos & sélection teaser — visibles toujours, modifiables si !is_locked */}
       <div className="card p-6 mb-6">
@@ -623,27 +416,6 @@ export default function CourtierDealDetail() {
           </>
         )}
       </div>
-
-      {/* Frais Logeo (post-verdict) */}
-      {(deal.fee_pct || deal.fee_minimum) && (
-        <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Frais Logeo applicables</h2>
-          <dl className="grid grid-cols-2 gap-4 text-sm">
-            {deal.fee_pct != null && (
-              <div>
-                <dt className="text-gray-500 text-xs">Pourcentage</dt>
-                <dd className="font-medium">{deal.fee_pct}%</dd>
-              </div>
-            )}
-            {deal.fee_minimum != null && (
-              <div>
-                <dt className="text-gray-500 text-xs">Plancher</dt>
-                <dd className="font-medium">{formatMoney(deal.fee_minimum)}</dd>
-              </div>
-            )}
-          </dl>
-        </div>
-      )}
 
       {/* Q&A — répondre aux questions des acheteurs */}
       <div className="card p-6 mb-6">

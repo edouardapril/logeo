@@ -1,4 +1,5 @@
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     hash_password, verify_password, create_access_token, get_current_user,
+    get_token_payload,
 )
 from app.services import email as email_service
 
@@ -140,6 +142,42 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/me/session")
+async def me_session(
+    current_user: User = Depends(get_current_user),
+    token_payload: dict = Depends(get_token_payload),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retourne l'utilisateur effectif + état impersonation. Utilisé par le
+    frontend pour rendre le bandeau « Mode visualisation » et le dropdown
+    de sortie. Le client peut continuer à appeler `/me` pour le user simple.
+    """
+    is_imp = bool(token_payload.get("is_impersonating"))
+    real = None
+    if is_imp:
+        real_id = token_payload.get("real_sub")
+        if real_id:
+            r = await db.execute(select(User).where(User.id == uuid.UUID(real_id)))
+            real_user = r.scalar_one_or_none()
+            if real_user:
+                real = {
+                    "id": str(real_user.id),
+                    "email": real_user.email,
+                    "full_name": real_user.full_name,
+                    "role": str(real_user.role),
+                }
+    return {
+        "user": {
+            "id": str(current_user.id),
+            "email": current_user.email,
+            "full_name": current_user.full_name,
+            "role": str(current_user.role),
+        },
+        "is_impersonating": is_imp,
+        "real_user": real,
+    }
 
 
 # ── Email verification (sprint final item 10) ────────────────────────────────
