@@ -15,21 +15,27 @@ import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import { regionLabel } from '../../utils/quebec'
 
-// LOTPLOT 19B — couvre tous les statuts du nouveau pipeline (due_diligence,
-// awaiting_pa, awaiting_payment, paid, dd_failed) en plus des legacy.
-// `intro` reste pour la compat des deals pré-migration (devrait être vide post-migration).
-const STATUSES = [
-  { value: '', label: 'Tous' },
-  { value: 'analyse', label: 'En analyse' },
-  { value: 'bid', label: 'Enchère active' },
-  { value: 'due_diligence', label: 'Due diligence' },
-  { value: 'awaiting_pa', label: 'En attente PA' },
-  { value: 'pa_signed', label: 'PA signée' },
-  { value: 'awaiting_payment', label: 'Attente paiement' },
-  { value: 'paid', label: 'Finalisés' },
-  { value: 'dd_failed', label: 'DD négative' },
-  { value: 'auction_ended', label: 'Sans gagnant' },
-  { value: 'nogo', label: 'Refusés' },
+// LOTPLOT 19C — onglets admin groupés par étape du pipeline.
+// On fetch TOUJOURS tous les deals (pas de filtre status côté API) et on
+// filtre côté client en testant l'appartenance au groupe. Garantit qu'aucun
+// deal ne tombe dans un trou : la concat des `statuses` couvre l'ensemble
+// de l'enum DealStatus + le legacy `intro`.
+//
+// Cohérence avec LOTPLOT 19B (courtier dashboard) :
+//   - "En analyse"   = pending courtier
+//   - "Enchère active" / "Due diligence" / "Procédure confirmée" / "PA signée"
+//                    = active courtier (post-bid mais pas encore terminé)
+//   - "Payé"         = finished courtier
+//   - "Refusés/Échec" = finished courtier (terminaisons négatives)
+const TABS = [
+  { value: 'all',         label: 'Tous',                statuses: null },
+  { value: 'analyse',     label: 'En analyse',          statuses: ['analyse', 'draft'] },
+  { value: 'bid',         label: 'Enchère active',      statuses: ['bid'] },
+  { value: 'dd',          label: 'Due diligence',       statuses: ['due_diligence', 'intro'] },
+  { value: 'awaiting_pa', label: 'Procédure confirmée', statuses: ['awaiting_pa'] },
+  { value: 'pa_signed',   label: 'PA signée',           statuses: ['pa_signed', 'awaiting_payment'] },
+  { value: 'paid',        label: 'Payé / Finalisé',     statuses: ['paid'] },
+  { value: 'failed',      label: 'Refusés / Échec',     statuses: ['nogo', 'dd_failed', 'auction_ended'] },
 ]
 
 const formatMoney = (n) =>
@@ -40,38 +46,54 @@ const formatMoney = (n) =>
 export default function AdminDeals() {
   const queryClient = useQueryClient()
   // "En analyse" par défaut — workflow principal admin (deals à approuver)
-  const [status, setStatus] = useState('analyse')
+  const [tab, setTab] = useState('analyse')
   const [location, setLocation] = useState({ region: '', mrc: '', city: '' })
   const [dateFrom, setDateFrom] = useState('')
   const [includeArchived, setIncludeArchived] = useState(false)
   const [extendModal, setExtendModal] = useState(null)  // { dealId, currentClose }
   const [newCloseAt, setNewCloseAt] = useState('')
 
+  // Fetch SANS filtre status — on récupère tous les deals et on les groupe
+  // côté client via les `TABS[].statuses`. Évite que les nouveaux statuts
+  // (LOTPLOT 19) tombent dans un trou si on oublie de mapper l'API param.
   const { data: dealsRaw, isLoading } = useQuery({
-    queryKey: ['admin', 'deals-enriched', status, includeArchived],
+    queryKey: ['admin', 'deals-enriched', includeArchived],
     queryFn: async () => {
-      const data = await adminListDealsEnrichedApi(status || undefined, includeArchived)
+      const data = await adminListDealsEnrichedApi(undefined, includeArchived)
       console.log(
-        `[AdminDeals] GET /admin/deals/enriched?status=${status || 'ALL'}&include_archived=${includeArchived} →`,
+        `[AdminDeals] GET /admin/deals/enriched?include_archived=${includeArchived} →`,
         Array.isArray(data) ? `${data.length} deal(s)` : data,
-        data,
       )
       return data
     },
     refetchInterval: 30_000,
   })
 
-  // Filtres client-side : région + MRC + ville (substring) + date >=
+  // Filtres client-side : statut (groupe TAB) + région + MRC + ville + date >=
+  const activeTab = useMemo(() => TABS.find(t => t.value === tab) || TABS[0], [tab])
   const deals = useMemo(() => {
     if (!dealsRaw) return null
     return dealsRaw.filter(d => {
+      if (activeTab.statuses && !activeTab.statuses.includes(d.status)) return false
       if (location.region && d.region !== location.region) return false
       if (location.mrc && d.mrc !== location.mrc) return false
       if (location.city && !((d.city || '').toLowerCase().includes(location.city.toLowerCase()))) return false
       if (dateFrom && new Date(d.created_at) < new Date(dateFrom)) return false
       return true
     })
-  }, [dealsRaw, location, dateFrom])
+  }, [dealsRaw, activeTab, location, dateFrom])
+
+  // Comptage live par onglet (avant filtres location/date — on veut savoir
+  // combien de deals existent réellement dans chaque étape du pipeline)
+  const tabCounts = useMemo(() => {
+    if (!dealsRaw) return {}
+    const counts = { all: dealsRaw.length }
+    for (const t of TABS) {
+      if (!t.statuses) continue
+      counts[t.value] = dealsRaw.filter(d => t.statuses.includes(d.status)).length
+    }
+    return counts
+  }, [dealsRaw])
 
   const hasFilter = location.region || location.mrc || location.city || dateFrom
 
@@ -115,24 +137,25 @@ export default function AdminDeals() {
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {STATUSES.map(s => {
-          const isActive = status === s.value
+        {TABS.map(t => {
+          const isActive = tab === t.value
+          const count = tabCounts[t.value] ?? 0
           return (
             <button
-              key={s.value}
-              onClick={() => setStatus(s.value)}
+              key={t.value}
+              onClick={() => setTab(t.value)}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 ${
                 isActive
                   ? 'bg-[#EA580C] text-white'
                   : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
               }`}
             >
-              {s.label}
-              {isActive && dealsRaw && (
+              {t.label}
+              {dealsRaw && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                   isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
                 }`}>
-                  {dealsRaw.length}
+                  {count}
                 </span>
               )}
             </button>
