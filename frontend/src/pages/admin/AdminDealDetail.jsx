@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  ArrowLeft, Trophy, DollarSign,
+  ArrowLeft, Trophy, DollarSign, Hammer,
   Archive, ArchiveRestore, Trash2, AlertTriangle as AlertTriangleIcon,
 } from 'lucide-react'
 import {
@@ -11,6 +11,7 @@ import {
   confirmDepositApi, confirmBalanceApi,
   archiveDealApi, unarchiveDealApi, deleteDealApi,
 } from '../../api/admin'
+import { placeBidApi } from '../../api/acheteur'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
@@ -18,6 +19,7 @@ import Input, { Textarea } from '../../components/ui/Input'
 import DealHero from '../../components/deal/DealHero'
 import DealFiche from '../../components/deal/DealFiche'
 import LockedFeatureGrid from '../../components/deal/LockedFeatureGrid'
+import BidDisclaimerModal from '../../components/deal/BidDisclaimerModal'
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 0 }).format(n)
@@ -34,6 +36,10 @@ export default function AdminDealDetail() {
   const [interacRef, setInteracRef] = useState('')
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  // Bid admin (en son nom propre, sans NDA)
+  const [bidModal, setBidModal] = useState(false)
+  const [bidAmount, setBidAmount] = useState('')
+  const [bidDisclaimer, setBidDisclaimer] = useState(false)
 
   const { data: deal, isLoading } = useQuery({
     queryKey: ['admin', 'deal', dealId],
@@ -92,6 +98,27 @@ export default function AdminDealDetail() {
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
 
+  const placeBid = useMutation({
+    mutationFn: (consents) => placeBidApi(dealId, {
+      amount: parseInt(bidAmount), ...consents,
+    }),
+    onSuccess: (data) => {
+      const st = data?.auction_state
+      if (st?.i_am_leading) {
+        toast.success(`Vous êtes le meneur — prix actuel : ${formatMoney(st.current_price)}`)
+      } else if (st) {
+        toast(`Quelqu'un a une offre plus élevée que la vôtre`, { icon: '⚠️' })
+      } else {
+        toast.success('Offre soumise')
+      }
+      queryClient.invalidateQueries({ queryKey: ['admin'] })
+      setBidAmount('')
+      setBidDisclaimer(false)
+      setBidModal(false)
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+
   const deleteMut = useMutation({
     mutationFn: () => deleteDealApi(dealId),
     onSuccess: () => {
@@ -110,6 +137,8 @@ export default function AdminDealDetail() {
   const canVerdict = deal.status === 'analyse'
   const canConfirmDeposit = deal.status === 'bid' && winner
   const canConfirmBalance = deal.status === 'pa_signed' && winner
+  const isAuctionOpen = deal.status === 'bid' && deal.bid_close_at && new Date(deal.bid_close_at) > new Date()
+  const auctionState = deal.auction_state || {}
 
   const submitVerdict = () => {
     if (verdictModal === 'go') {
@@ -158,6 +187,14 @@ export default function AdminDealDetail() {
                 GO · Publier
               </button>
             </>
+          )}
+          {isAuctionOpen && (
+            <button
+              onClick={() => setBidModal(true)}
+              className="btn-primary text-sm inline-flex items-center gap-1.5"
+            >
+              <Hammer className="h-4 w-4" /> Faire une offre
+            </button>
           )}
           {canConfirmDeposit && (
             <button onClick={() => setInteracModal('deposit')} className="btn-primary text-sm">
@@ -214,12 +251,22 @@ export default function AdminDealDetail() {
       <DealHero
         deal={deal}
         cta={
-          <a
-            href="#bids"
-            className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
-          >
-            <Trophy className="h-5 w-5" /> Voir les enchères ({bids?.length || 0})
-          </a>
+          <div className="flex flex-col gap-2 w-full">
+            {isAuctionOpen && (
+              <button
+                onClick={() => setBidModal(true)}
+                className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
+              >
+                <Hammer className="h-5 w-5" /> Faire une offre
+              </button>
+            )}
+            <a
+              href="#bids"
+              className={`${isAuctionOpen ? 'btn-secondary' : 'btn-primary'} w-full text-base py-3 inline-flex items-center justify-center gap-2`}
+            >
+              <Trophy className="h-5 w-5" /> Voir les enchères ({bids?.length || 0})
+            </a>
+          </div>
         }
       />
 
@@ -383,6 +430,91 @@ export default function AdminDealDetail() {
           </div>
         </div>
       </Modal>
+
+      {/* Modale d'offre admin (en son nom propre, sans NDA) — flow identique acheteur */}
+      <Modal
+        open={bidModal}
+        onClose={() => { setBidModal(false); setBidAmount('') }}
+        title="Faire une offre (admin)"
+        size="md"
+      >
+        {(() => {
+          const increment = auctionState.increment || 5000
+          const currentPrice = auctionState.current_price
+          const myMax = auctionState.my_max
+          const floor = auctionState.floor || deal.floor_price || 0
+          // Le min doit dépasser à la fois current_price et son propre max courant
+          const baseMin = currentPrice != null ? currentPrice + increment : floor + increment
+          const minNext = Math.max(baseMin, (myMax || 0) + increment)
+          const numeric = parseInt(bidAmount) || 0
+          const errors = []
+          if (numeric > 0) {
+            if (numeric % increment !== 0) errors.push(`Doit être un multiple de ${formatMoney(increment)}`)
+            if (currentPrice != null && numeric <= currentPrice)
+              errors.push(`Doit être supérieur au prix courant (${formatMoney(currentPrice)})`)
+            if (myMax != null && numeric <= myMax)
+              errors.push(`Vous avez déjà une offre plus élevée (${formatMoney(myMax)})`)
+          }
+          const canSubmit = numeric > 0 && errors.length === 0
+          return (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700 leading-relaxed">
+                Entrez votre <strong>offre maximale</strong>. Cette valeur reste <strong>privée</strong>.
+                Le prix affiché n'augmentera que si nécessaire pour vous maintenir leader,
+                jusqu'à concurrence de votre maximum.
+              </div>
+              <p className="text-xs text-gray-600">
+                Prix courant : <strong>{currentPrice != null ? formatMoney(currentPrice) : '—'}</strong>
+                {' · '}offre minimum : <strong>{formatMoney(minNext)}</strong>
+                {' · '}incrément {formatMoney(increment)}
+              </p>
+              {auctionState.i_am_leading && (
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-2 text-xs text-emerald-800">
+                  Vous êtes actuellement le meneur (max {formatMoney(myMax)}).
+                </div>
+              )}
+              <Input
+                label="Votre offre maximale (CAD)"
+                type="number"
+                min={minNext}
+                step={increment}
+                value={bidAmount}
+                onChange={(e) => setBidAmount(e.target.value)}
+                placeholder={String(minNext)}
+                hint={`Multiple de ${formatMoney(increment)}.`}
+              />
+              {errors.length > 0 && (
+                <ul className="text-xs text-red-700 space-y-0.5">
+                  {errors.map((err, i) => <li key={i}>• {err}</li>)}
+                </ul>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  onClick={() => { setBidModal(false); setBidAmount('') }}
+                  className="btn-secondary"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => canSubmit && setBidDisclaimer(true)}
+                  disabled={!canSubmit}
+                  className="btn-primary"
+                >
+                  Continuer · décharge
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
+
+      <BidDisclaimerModal
+        open={bidDisclaimer}
+        onClose={() => setBidDisclaimer(false)}
+        amount={bidAmount}
+        onConfirm={(consents) => placeBid.mutate(consents)}
+        isSubmitting={placeBid.isPending}
+      />
 
       {/* Modale de suppression : exige de taper SUPPRIMER */}
       <Modal

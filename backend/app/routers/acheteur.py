@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from app.config import get_settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.deal import Deal, DealStatus
 from app.models.bid import Bid, BidStatus, PaymentStatus as BidPaymentStatus
 from app.models.nda import NDA
@@ -14,7 +14,7 @@ from app.models.payment import Payment, PaymentType, PaymentState
 from app.models.deal_unit import DealUnit
 from app.models.deal_question import DealQuestion
 from app.schemas.deal import DealTeaser, DealFull
-from app.schemas.bid import BidCreate, BidOwnerView, BidRankItem, BidEngagementSign
+from app.schemas.bid import BidCreate, BidOwnerView, BidRankItem, BidEngagementSign, BidPlacedResponse
 from app.schemas.nda import NDASign, NDAConfirmation
 from app.schemas.unit import UnitView
 from app.schemas.question import QuestionCreate, QuestionView
@@ -22,7 +22,7 @@ from app.schemas.payment import (
     SetupIntentResponse, ConfirmPaymentMethodRequest, PaymentMethodView,
     FeeQuote, PaymentView,
 )
-from app.services.auth import require_acheteur, block_in_impersonation
+from app.services.auth import require_acheteur, require_acheteur_or_admin, block_in_impersonation
 from app.services import email as email_service
 from app.services import payment_service
 from app.services.fee import compute_fees
@@ -204,7 +204,7 @@ async def sign_nda(
     return nda
 
 
-@router.get("/deals/{deal_id}/full", response_model=DealFull)
+@router.get("/deals/{deal_id}/full")
 async def get_deal_full(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_acheteur),
@@ -221,6 +221,8 @@ async def get_deal_full(
     courtier_result = await db.execute(select(User).where(User.id == deal.courtier_id))
     courtier = courtier_result.scalar_one()
 
+    state = await auction_svc.compute_auction_state(deal, db)
+
     return {
         **deal.__dict__,
         "courtier_name": courtier.full_name,
@@ -228,6 +230,9 @@ async def get_deal_full(
         "courtier_phone": courtier.phone,
         "agency_name": courtier.agency_name,
         "courtier_oaciq_number": courtier.oaciq_number,
+        "auction_state": auction_svc.serialize_auction_state(
+            state, "acheteur", current_user.id,
+        ),
     }
 
 
@@ -251,28 +256,34 @@ async def sign_engagement(
     return {"message": "Engagement signé avec succès"}
 
 
-@router.post("/deals/{deal_id}/bids", response_model=BidOwnerView, status_code=201)
+@router.post("/deals/{deal_id}/bids", response_model=BidPlacedResponse, status_code=201)
 async def place_bid(
     deal_id: uuid.UUID,
     payload: BidCreate,
     request: Request,
-    current_user: User = Depends(require_acheteur),
+    current_user: User = Depends(require_acheteur_or_admin),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(block_in_impersonation),
 ):
-    _require_qualified(current_user)
+    # L'admin peut bidder en son nom propre — on saute les gates business spécifiques
+    # à l'acheteur (qualification, NDA, engagement de paiement, carte enregistrée).
+    # Les bids de l'admin sont stockés normalement et entrent dans le calcul proxy
+    # comme n'importe quel bidder.
+    is_admin_bidder = current_user.role == UserRole.admin
+    if not is_admin_bidder:
+        _require_qualified(current_user)
 
-    if not await _has_signed_nda(deal_id, current_user.id, db):
-        raise HTTPException(status_code=403, detail="NDA requis avant d'enchérir")
+        if not await _has_signed_nda(deal_id, current_user.id, db):
+            raise HTTPException(status_code=403, detail="NDA requis avant d'enchérir")
 
-    if not current_user.engagement_signed_at:
-        raise HTTPException(status_code=403, detail="Engagement de paiement requis avant d'enchérir")
+        if not current_user.engagement_signed_at:
+            raise HTTPException(status_code=403, detail="Engagement de paiement requis avant d'enchérir")
 
-    if not payment_service.has_payment_method(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail="Carte de paiement requise avant d'enchérir. Enregistrez-la dans votre profil.",
-        )
+        if not payment_service.has_payment_method(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail="Carte de paiement requise avant d'enchérir. Enregistrez-la dans votre profil.",
+            )
 
     # Décharge obligatoire — les 4 cases doivent être cochées
     consents = (
@@ -388,7 +399,12 @@ async def place_bid(
         # Ne jamais bloquer la création du bid si le bus WS échoue
         pass
 
-    return bid
+    return {
+        "bid": bid,
+        "auction_state": auction_svc.serialize_auction_state(
+            state_after, "acheteur", current_user.id,
+        ),
+    }
 
 
 @router.get("/deals/{deal_id}/bids/mine", response_model=list[BidOwnerView])
@@ -430,16 +446,21 @@ async def bid_ranking(
         raise HTTPException(status_code=404, detail="Deal introuvable")
 
     state = await auction_svc.compute_auction_state(deal, db)
+    serialized = auction_svc.serialize_auction_state(state, "acheteur", current_user.id)
     increment = state["increment"]
-    base = state["displayed_price"] or state["floor"] or 0
-    i_am_leading = state["winner_id"] == current_user.id and state["winner_id"] is not None
+    floor = state["floor"] or 0
+    my_max = serialized.get("my_max")
+    current_price = state["current_price"] or floor
+    # Min next bid : doit dépasser current_price ET le propre max courant de l'acheteur,
+    # tout en restant un multiple de l'incrément.
+    min_next = max(current_price, my_max or 0) + increment
     return {
+        # Nouvelles clés conformes à la spec
+        **serialized,
+        # Aliases legacy pour ne pas casser la fiche acheteur existante
         "floor_price": state["floor"],
-        "displayed_price": state["displayed_price"],
-        "min_next_bid": (base + increment) if state["bidders_count"] > 0 else state["floor"],
-        "increment": increment,
-        "bidders_count": state["bidders_count"],
-        "i_am_leading": i_am_leading,
+        "displayed_price": state["current_price"],
+        "min_next_bid": min_next if state["bidders_count"] > 0 else state["floor"],
     }
 
 

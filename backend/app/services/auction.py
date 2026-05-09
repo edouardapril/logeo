@@ -2,7 +2,7 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.models.deal import Deal, DealStatus
 from app.models.bid import Bid, BidStatus, PaymentStatus
@@ -23,79 +23,184 @@ def compute_logeo_fee(amount: int, fee_pct: float, fee_minimum: int) -> int:
     return max(calculated, fee_minimum)
 
 
-# ── Proxy bid logic ──────────────────────────────────────────────────────────
-
-async def _max_bids_per_buyer(deal_id: uuid.UUID, db: AsyncSession) -> list[tuple[uuid.UUID, int]]:
-    """Retourne [(acheteur_id, max_amount), ...] trié par montant desc."""
-    res = await db.execute(
-        select(Bid.acheteur_id, func.max(Bid.amount).label("m"))
-        .where(Bid.deal_id == deal_id, Bid.status == BidStatus.active)
-        .group_by(Bid.acheteur_id)
-        .order_by(func.max(Bid.amount).desc())
-    )
-    return [(row.acheteur_id, row.m) for row in res.all()]
+# ── Proxy bid logic (eBay-style) ──────────────────────────────────────────────
+#
+# Règle :
+#   current_price = min(leader_max, max(floor, second_highest_max) + increment)
+#   leader = bidder dont le `max` est le plus élevé
+#   tiebreak égalité de max : premier arrivé à ce montant
+#
+# Chaque user_id : on prend le bid `amount` le plus élevé (= son max courant) ;
+# les anciens bids du même user restent en historique mais ne pèsent pas.
 
 
 async def compute_auction_state(deal: Deal, db: AsyncSession) -> dict:
-    """
-    Calcule l'état courant de l'enchère :
-      - winner_id (None si aucun bid)
-      - winner_max (montant max du gagnant)
-      - displayed_price : prix vu par tous (2e + incrément, ou floor si <2 bidders)
-      - bidders_count
+    """État courant — proxy bid eBay-style.
+
+    Retourne un dict riche : clés sémantiques `current_price` / `leader_user_id` /
+    `leader_max` plus alias legacy `displayed_price` / `winner_id` / `winner_max`
+    pour ne pas casser les appelants existants. La sérialisation par rôle se fait
+    via `serialize_auction_state(state, role, current_user_id)`.
     """
     floor = deal.floor_price or 0
     increment = deal.min_bid_increment or settings.bid_min_increment
 
-    rows = await _max_bids_per_buyer(deal.id, db)
-    if not rows:
-        return {
-            "winner_id": None, "winner_max": None,
-            "displayed_price": floor or None,
-            "bidders_count": 0, "increment": increment, "floor": floor or None,
-        }
+    res = await db.execute(
+        select(Bid)
+        .where(Bid.deal_id == deal.id, Bid.status == BidStatus.active)
+        .order_by(Bid.created_at.asc())
+    )
+    bids = list(res.scalars().all())
+    bids_count = len(bids)
 
-    winner_id, winner_max = rows[0]
-    if len(rows) >= 2:
-        second_max = rows[1][1]
-        displayed = min(second_max + increment, winner_max)
-    else:
-        displayed = max(floor, winner_max) if floor else winner_max
+    # Label anonyme stable : ordre d'apparition du 1er bid de chaque user
+    label_per_user: dict[uuid.UUID, str] = {}
+    next_idx = 1
+    # Max par user + horodatage du 1er bid à ce max (tiebreak)
+    per_user: dict[uuid.UUID, dict] = {}
+    for b in bids:
+        if b.acheteur_id not in label_per_user:
+            label_per_user[b.acheteur_id] = f"Acheteur #{next_idx}"
+            next_idx += 1
+        rec = per_user.get(b.acheteur_id)
+        if rec is None or b.amount > rec["max"]:
+            per_user[b.acheteur_id] = {"max": b.amount, "earliest_at_max": b.created_at}
+        elif b.amount == rec["max"] and b.created_at < rec["earliest_at_max"]:
+            rec["earliest_at_max"] = b.created_at
+
+    base_empty = {
+        "current_price": floor or None,
+        "displayed_price": floor or None,
+        "leader_user_id": None,
+        "winner_id": None,
+        "leader_max": None,
+        "winner_max": None,
+        "leader_anonymous_label": None,
+        "bidders_count": 0,
+        "bids_count": 0,
+        "increment": increment,
+        "floor": floor or None,
+        "max_per_user": {},
+        "anonymous_label_per_user": {},
+    }
+    if not per_user:
+        return base_empty
+
+    sorted_users = sorted(
+        per_user.items(),
+        key=lambda kv: (-kv[1]["max"], kv[1]["earliest_at_max"]),
+    )
+    leader_id, leader_rec = sorted_users[0]
+    leader_max = leader_rec["max"]
+    second_max = sorted_users[1][1]["max"] if len(sorted_users) >= 2 else 0
+
+    # Spec : prix_affiché = max(floor, second_highest_max) + increment, capped au max du leader
+    current_price = max(floor, second_max) + increment
+    current_price = min(current_price, leader_max)
 
     return {
-        "winner_id": winner_id, "winner_max": winner_max,
-        "displayed_price": displayed,
-        "bidders_count": len(rows),
-        "increment": increment, "floor": floor or None,
+        "current_price": current_price,
+        "displayed_price": current_price,
+        "leader_user_id": leader_id,
+        "winner_id": leader_id,
+        "leader_max": leader_max,
+        "winner_max": leader_max,
+        "leader_anonymous_label": label_per_user[leader_id],
+        "bidders_count": len(sorted_users),
+        "bids_count": bids_count,
+        "increment": increment,
+        "floor": floor or None,
+        "max_per_user": {uid: rec["max"] for uid, rec in per_user.items()},
+        "anonymous_label_per_user": dict(label_per_user),
+    }
+
+
+def serialize_auction_state(
+    state: dict,
+    role: str,
+    current_user_id: uuid.UUID | None = None,
+) -> dict:
+    """Vue filtrée pour l'API selon le rôle de l'appelant.
+
+    - acheteur : `current_price`, `bidders_count`, `bids_count`, son propre statut
+                 (`i_am_leading`, `my_max`) ; jamais les maxs des autres.
+    - courtier : `current_price`, `bidders_count`, `bids_count`, label anonyme du
+                 leader ; pas d'identité réelle ni de maxs individuels.
+    - admin    : tout, y compris `leader_max`, `max_per_user` et l'identité du leader.
+    """
+    base = {
+        "current_price": state["current_price"],
+        "bidders_count": state["bidders_count"],
+        "bids_count": state["bids_count"],
+        "increment": state["increment"],
+        "floor": state["floor"],
+        "leader_anonymous_label": state["leader_anonymous_label"],
+    }
+    if role == "admin":
+        leader_id = state["leader_user_id"]
+        i_am_leading = leader_id is not None and leader_id == current_user_id
+        my_max = state["max_per_user"].get(current_user_id) if current_user_id else None
+        return {
+            **base,
+            "leader_user_id": str(leader_id) if leader_id else None,
+            "leader_max": state["leader_max"],
+            "max_per_user": {str(k): v for k, v in state["max_per_user"].items()},
+            "anonymous_label_per_user": {
+                str(k): v for k, v in state["anonymous_label_per_user"].items()
+            },
+            # Admin peut aussi bidder en son nom propre — on expose son statut self-bid
+            # pour que le frontend puisse appliquer les mêmes règles client (multiple,
+            # > prix courant, > son propre max).
+            "i_am_leading": i_am_leading,
+            "my_max": my_max,
+        }
+    if role == "courtier":
+        return base
+
+    # acheteur (default)
+    leader_id = state["leader_user_id"]
+    i_am_leading = leader_id is not None and leader_id == current_user_id
+    my_max = state["max_per_user"].get(current_user_id) if current_user_id else None
+    return {
+        **base,
+        "i_am_leading": i_am_leading,
+        "my_max": my_max,
+        "leader_user_id": str(leader_id) if i_am_leading else None,
     }
 
 
 def validate_new_bid_amount(amount: int, state: dict, current_user_id: uuid.UUID) -> str | None:
-    """Retourne un message d'erreur si invalide, None sinon."""
+    """Retourne un message d'erreur si invalide, None sinon.
+
+    Règles (proxy bid) :
+      a) amount > current_price
+      b) amount > max précédent du même user
+      c) amount % increment == 0
+      d) amount ≥ floor
+    """
     if amount <= 0:
         return "Montant invalide"
-    floor = state["floor"]
     increment = state["increment"]
+    if increment and amount % increment != 0:
+        return f"Le montant doit être un multiple de {increment:,} CAD".replace(",", " ")
+
+    floor = state["floor"]
     if floor and amount < floor:
         return f"Le montant doit être ≥ au prix plancher ({floor:,} CAD)".replace(",", " ")
 
-    displayed = state["displayed_price"]
-    is_first_bidder = state["bidders_count"] == 0
-    is_already_winner = state["winner_id"] == current_user_id
+    current_price = state["current_price"]
+    if current_price is not None and amount <= current_price:
+        return (
+            f"Doit être supérieur au prix courant ({current_price:,} CAD)"
+            .replace(",", " ")
+        )
 
-    if is_first_bidder:
-        return None  # premier bidder : seul le floor s'applique
-
-    if is_already_winner:
-        # Le gagnant courant peut relever sa max ; doit dépasser sa propre max courante
-        if amount <= (state["winner_max"] or 0):
-            return f"Pour relever votre offre, montant > {state['winner_max']:,} CAD".replace(",", " ")
-        return None
-
-    # Challenger : doit dépasser le displayed + increment
-    minimum = (displayed or floor or 0) + increment
-    if amount < minimum:
-        return f"Offre minimum : {minimum:,} CAD (incrément {increment:,} CAD)".replace(",", " ")
+    my_max = state["max_per_user"].get(current_user_id)
+    if my_max is not None and amount <= my_max:
+        return (
+            f"Vous avez déjà une offre plus élevée ({my_max:,} CAD)"
+            .replace(",", " ")
+        )
     return None
 
 

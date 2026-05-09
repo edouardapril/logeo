@@ -231,7 +231,7 @@ async def get_my_deal(
     from sqlalchemy import func
     from app.models.nda import NDA
     from app.models.bid import Bid, BidStatus
-    from app.services.auction import compute_auction_state
+    from app.services.auction import compute_auction_state, serialize_auction_state
 
     result = await db.execute(
         select(Deal).where(Deal.id == deal_id, Deal.courtier_id == current_user.id)
@@ -260,10 +260,12 @@ async def get_my_deal(
         # (le PATCH /teaser-selection valide contre les paths DB, pas les URLs signées).
         "photo_paths_raw": list(deal.photo_paths or []),
         # Stats live pour le hero unifié
-        "displayed_price": state["displayed_price"],
+        "displayed_price": state["current_price"],
         "bidders_count": state["bidders_count"],
         "ndas_count": ndas_count,
         "unanswered_questions_count": unans_count,
+        # Auction state filtré "courtier" : pas d'identité bidder ni de maxs
+        "auction_state": serialize_auction_state(state, "courtier"),
     }
 
 

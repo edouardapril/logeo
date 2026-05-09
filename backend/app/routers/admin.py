@@ -319,12 +319,16 @@ async def list_deals_enriched(
     return out
 
 
-@router.get("/deals/{deal_id}", response_model=DealAdminView)
+@router.get("/deals/{deal_id}")
 async def get_deal(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import func
+    from app.models.nda import NDA
+    from app.services.auction import serialize_auction_state
+
     result = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = result.scalar_one_or_none()
     if not deal:
@@ -333,12 +337,28 @@ async def get_deal(
     courtier_result = await db.execute(select(User).where(User.id == deal.courtier_id))
     courtier = courtier_result.scalar_one()
 
+    state = await compute_auction_state(deal, db)
+    ndas_res = await db.execute(
+        select(func.count(NDA.id)).where(NDA.deal_id == deal_id)
+    )
+    ndas_count = int(ndas_res.scalar() or 0)
+
     return {
         **deal.__dict__,
         "courtier_name": courtier.full_name,
         "courtier_email": courtier.email,
         "courtier_phone": courtier.phone,
         "agency_name": courtier.agency_name,
+        # Champs lus directement par DealHero (deal.displayed_price / .bidders_count).
+        # Sans ces clés au niveau racine, le hero retombe sur floor_price et le prix
+        # affiché ne bouge plus après un bid — d'où le bug LOTPLOT 15C.
+        "displayed_price": state["current_price"],
+        "bidders_count": state["bidders_count"],
+        "ndas_count": ndas_count,
+        # Vue admin complète : maxs individuels, identité du leader, historique.
+        # `current_user.id` permet d'exposer `i_am_leading`/`my_max` si l'admin
+        # bidde en son nom propre.
+        "auction_state": serialize_auction_state(state, "admin", current_user.id),
     }
 
 

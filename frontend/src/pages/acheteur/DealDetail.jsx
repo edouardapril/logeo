@@ -176,8 +176,18 @@ export default function DealDetail() {
     mutationFn: (consents) => placeBidApi(dealId, {
       amount: parseInt(bidAmount), ...consents,
     }),
-    onSuccess: () => {
-      toast.success('Offre soumise')
+    onSuccess: (data) => {
+      // Le backend retourne maintenant { bid, auction_state } — on s'en sert
+      // pour donner un feedback précis : meneur / dépassé.
+      const st = data?.auction_state
+      if (st?.i_am_leading) {
+        const price = formatMoney(st.current_price)
+        toast.success(`Vous êtes le meneur — prix actuel : ${price}`)
+      } else if (st) {
+        toast(`Quelqu'un a une offre plus élevée que la vôtre`, { icon: '⚠️' })
+      } else {
+        toast.success('Offre soumise')
+      }
       queryClient.invalidateQueries({ queryKey: ['acheteur'] })
       setBidAmount('')
       setDisclaimerModal(false)
@@ -803,31 +813,65 @@ export default function DealDetail() {
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {ranking?.min_next_bid && (
-                    <p className="text-xs text-gray-600 px-1">
-                      Offre minimum : <strong>{formatMoney(ranking.min_next_bid)}</strong>
-                      {ranking.bidders_count > 0 && (
-                        <span className="text-gray-400"> · incrément {formatMoney(ranking.increment)}</span>
+                (() => {
+                  const increment = ranking?.increment || 5000
+                  const currentPrice = ranking?.current_price ?? ranking?.displayed_price
+                  const minNext = ranking?.min_next_bid
+                  const numeric = parseInt(bidAmount) || 0
+                  // Validation client : multiple de l'incrément + > prix courant + > son propre max
+                  const errors = []
+                  if (numeric > 0) {
+                    if (numeric % increment !== 0) {
+                      errors.push(`Doit être un multiple de ${formatMoney(increment)}`)
+                    }
+                    if (currentPrice != null && numeric <= currentPrice) {
+                      errors.push(`Doit être supérieur au prix courant (${formatMoney(currentPrice)})`)
+                    }
+                    if (ranking?.my_max != null && numeric <= ranking.my_max) {
+                      errors.push(`Vous avez déjà une offre plus élevée (${formatMoney(ranking.my_max)})`)
+                    }
+                  }
+                  const canSubmit = numeric > 0 && errors.length === 0
+                  return (
+                    <div className="space-y-3">
+                      <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-700 leading-relaxed">
+                        Entrez votre <strong>offre maximale</strong>. Cette valeur reste <strong>privée</strong>.
+                        Le prix affiché n'augmentera que si nécessaire pour vous maintenir leader,
+                        jusqu'à concurrence de votre maximum.
+                      </div>
+                      {minNext != null && (
+                        <p className="text-xs text-gray-600 px-1">
+                          Offre minimum : <strong>{formatMoney(minNext)}</strong>
+                          {ranking.bidders_count > 0 && (
+                            <span className="text-gray-400"> · incrément {formatMoney(increment)}</span>
+                          )}
+                        </p>
                       )}
-                    </p>
-                  )}
-                  <Input
-                    label="Montant de votre offre (CAD)"
-                    type="number" min={ranking?.min_next_bid || deal.floor_price || 0}
-                    value={bidAmount}
-                    onChange={(e) => setBidAmount(e.target.value)}
-                    placeholder={String(ranking?.min_next_bid || deal.floor_price || '')}
-                    hint="Votre maximum proxy. Le prix affiché monte automatiquement selon les enchères concurrentes."
-                  />
-                  <button
-                    onClick={() => bidAmount && parseInt(bidAmount) > 0 && setDisclaimerModal(true)}
-                    disabled={!bidAmount || parseInt(bidAmount) <= 0}
-                    className="btn-primary w-full"
-                  >
-                    Continuer · décharge
-                  </button>
-                </div>
+                      <Input
+                        label="Votre offre maximale (CAD)"
+                        type="number"
+                        min={minNext || deal.floor_price || 0}
+                        step={increment}
+                        value={bidAmount}
+                        onChange={(e) => setBidAmount(e.target.value)}
+                        placeholder={String(minNext || deal.floor_price || '')}
+                        hint={`Multiple de ${formatMoney(increment)}.`}
+                      />
+                      {errors.length > 0 && (
+                        <ul className="text-xs text-red-700 space-y-0.5">
+                          {errors.map((err, i) => <li key={i}>• {err}</li>)}
+                        </ul>
+                      )}
+                      <button
+                        onClick={() => canSubmit && setDisclaimerModal(true)}
+                        disabled={!canSubmit}
+                        className="btn-primary w-full"
+                      >
+                        Continuer · décharge
+                      </button>
+                    </div>
+                  )
+                })()
               )}
             </div>
           )}

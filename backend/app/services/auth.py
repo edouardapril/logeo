@@ -167,4 +167,5 @@ def require_role(*roles: UserRole):
 require_admin = require_role(UserRole.admin)
 require_courtier = require_role(UserRole.courtier)
 require_acheteur = require_role(UserRole.acheteur)
+require_acheteur_or_admin = require_role(UserRole.acheteur, UserRole.admin)
 require_authenticated = require_role(UserRole.admin, UserRole.courtier, UserRole.acheteur)

@@ -16,7 +16,7 @@ from app.models.bid import Bid, BidStatus
 from app.models.deal_review import DealReview
 from app.models.nda import NDA
 from app.models.deal_question import DealQuestion
-from app.services.auction import compute_auction_state
+from app.services.auction import compute_auction_state, serialize_auction_state
 from app.services import storage as storage_svc
 
 router = APIRouter(prefix="/public", tags=["public"])
@@ -346,9 +346,15 @@ def _serialize_public_deal(d, state, nda_count):
         "total_area_sqft": d.total_area_sqft,
         "tax_roll_date": d.tax_roll_date.isoformat() if d.tax_roll_date else None,
         # Enchère
-        "displayed_price": state["displayed_price"],
+        "displayed_price": state["current_price"],
+        "current_price": state["current_price"],
         "bidders_count": state["bidders_count"],
+        "bids_count": state["bids_count"],
         "min_bid_increment": d.min_bid_increment,
+        # Vue publique : tous les acheteurs/visiteurs voient le current_price.
+        # Aucune identité ni max individuel n'est exposé (rôle "courtier" en plus
+        # restrictif suffit pour le public).
+        "auction_state": serialize_auction_state(state, "courtier"),
         "bid_open_at": d.bid_open_at.isoformat() if d.bid_open_at else None,
         "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
         # Teaser visuel + texte (max 3 photos watermarquées — sprint v13)

@@ -45,6 +45,13 @@ class BidOwnerView(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# Réponse après POST /acheteur/deals/{id}/bids — bid créé + nouvel auction_state
+# (vue acheteur : `current_price`, `i_am_leading`, `my_max`, jamais les maxs des autres)
+class BidPlacedResponse(BaseModel):
+    bid: BidOwnerView
+    auction_state: dict
+
+
 # Classement anonyme visible par tous les acheteurs (position seulement, pas les montants)
 class BidRankItem(BaseModel):
     rank: int
