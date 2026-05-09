@@ -25,9 +25,18 @@ const TABS = [
   { value: 'finished', label: 'Terminés' },
 ]
 
-const ACTIVE_STATUSES   = ['bid', 'intro']
+// LOTPLOT 19B : statuts post-LOTPLOT 19. `intro` est legacy (data migré
+// en `due_diligence`) mais on le garde dans ACTIVE_STATUSES pour ne pas
+// orpheliner d'anciennes rows si la migration data n'a pas tourné.
+// Aucun deal ne doit tomber entre les filtres : la concat des 3 listes
+// doit couvrir l'ensemble de l'enum DealStatus.
+const ACTIVE_STATUSES   = [
+  'bid',
+  'due_diligence', 'awaiting_pa', 'awaiting_payment', 'pa_signed',
+  'intro', // legacy
+]
 const PENDING_STATUSES  = ['analyse', 'draft']
-const FINISHED_STATUSES = ['pa_signed', 'auction_ended', 'nogo']
+const FINISHED_STATUSES = ['paid', 'auction_ended', 'nogo', 'dd_failed']
 
 function KpiCard({ icon: Icon, label, value, color = 'orange', formatFn }) {
   const palettes = {

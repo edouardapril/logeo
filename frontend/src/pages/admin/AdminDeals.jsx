@@ -15,12 +15,20 @@ import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
 import { PROPERTY_TYPE_LABELS } from '../../utils/constants'
 import { regionLabel } from '../../utils/quebec'
 
+// LOTPLOT 19B — couvre tous les statuts du nouveau pipeline (due_diligence,
+// awaiting_pa, awaiting_payment, paid, dd_failed) en plus des legacy.
+// `intro` reste pour la compat des deals pré-migration (devrait être vide post-migration).
 const STATUSES = [
   { value: '', label: 'Tous' },
   { value: 'analyse', label: 'En analyse' },
   { value: 'bid', label: 'Enchère active' },
-  { value: 'intro', label: 'Intro confirmée' },
+  { value: 'due_diligence', label: 'Due diligence' },
+  { value: 'awaiting_pa', label: 'En attente PA' },
   { value: 'pa_signed', label: 'PA signée' },
+  { value: 'awaiting_payment', label: 'Attente paiement' },
+  { value: 'paid', label: 'Finalisés' },
+  { value: 'dd_failed', label: 'DD négative' },
+  { value: 'auction_ended', label: 'Sans gagnant' },
   { value: 'nogo', label: 'Refusés' },
 ]
 

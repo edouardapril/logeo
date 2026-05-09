@@ -940,11 +940,19 @@ async def my_auctions(
     Liste enrichie des deals où l'acheteur courant a placé au moins un bid.
     Pour chaque deal, calcule sa position (winning / outbid / lost) et l'état de l'enchère.
 
-    Catégories implicites côté frontend :
-      - en_cours      : status='bid' et bid_close_at futur
-      - dd_en_cours   : status='intro' et acheteur courant = winner
-      - gagne         : status in (intro, pa_signed) et acheteur courant = winner
-      - perdu         : status in (intro, pa_signed, auction_ended) et autre winner / aucun
+    Catégories (LOTPLOT 19B — couvre tous les nouveaux statuts) :
+      - en_cours    : status='bid' (enchère encore ouverte)
+      - dd_en_cours : i_won AND status in {due_diligence, awaiting_pa}
+                      (winner pendant la DD ou en attente de la PA signée)
+      - gagne       : i_won AND status in {awaiting_payment, pa_signed, paid}
+                      (winner post-PA, deal en cours de finalisation ou finalisé)
+      - perdu       : NOT i_won AND status terminal pour le winner courant
+                      {auction_ended, dd_failed, paid, pa_signed, awaiting_payment,
+                       awaiting_pa, due_diligence}
+                      (j'ai perdu OU j'étais 1ᵉʳ gagnant qui s'est retiré → dd_failed)
+
+    L'enum DealStatus a 11 valeurs ; avec ces 4 catégories + le fallback `autre`
+    pour {draft, analyse, nogo}, aucun deal ne tombe entre les filtres frontend.
     """
     # Récupère tous les deal_ids où j'ai au moins un bid
     deal_ids_res = await db.execute(
@@ -978,19 +986,28 @@ async def my_auctions(
         my_bids = list(my_bids_res.scalars().all())
         my_max = max((b.amount for b in my_bids), default=None)
 
-        # Catégorie
+        # Catégorie (LOTPLOT 19B)
+        DD_STATUSES = (DealStatus.due_diligence, DealStatus.awaiting_pa)
+        WON_FINALIZED_STATUSES = (
+            DealStatus.awaiting_payment, DealStatus.pa_signed, DealStatus.paid,
+        )
+        LOST_STATUSES = (
+            DealStatus.due_diligence, DealStatus.awaiting_pa,
+            DealStatus.awaiting_payment, DealStatus.pa_signed, DealStatus.paid,
+            DealStatus.auction_ended, DealStatus.dd_failed,
+        )
         if d.status == DealStatus.bid:
             category = 'en_cours'
-        elif d.status == DealStatus.due_diligence and i_won:
+        elif i_won and d.status in DD_STATUSES:
             category = 'dd_en_cours'
-        elif d.status == DealStatus.pa_signed and i_won:
+        elif i_won and d.status in WON_FINALIZED_STATUSES:
             category = 'gagne'
-        elif d.status in (DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
+        elif d.status in LOST_STATUSES:
             category = 'perdu'
         else:
-            category = 'autre'
+            category = 'autre'  # draft, analyse, nogo (filets de sécurité)
 
-        # Pour la fenêtre DD : urgence
+        # Pour la fenêtre DD : urgence (< 24h restantes)
         dd_urgent = False
         if d.status == DealStatus.due_diligence and i_won and d.due_diligence_deadline:
             now = datetime.now(timezone.utc)
