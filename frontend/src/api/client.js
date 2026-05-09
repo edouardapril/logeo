@@ -9,8 +9,10 @@ if (typeof window !== 'undefined') {
 }
 
 // Timeout dédié aux uploads multipart (photos > 5 MB sur connexion résidentielle).
-// 120 s côté axios pour couvrir le 120 s côté Supabase + marge backend.
-export const UPLOAD_TIMEOUT_MS = 120_000
+// Chaîne complète : axios → uvicorn → httpx → Supabase. httpx côté backend est
+// à 120 s (storage._UPLOAD_TIMEOUT). On donne 180 s au client pour laisser ~60 s
+// de marge au backend pour traiter la réponse + le scan watermark + le retour.
+export const UPLOAD_TIMEOUT_MS = 180_000
 export const uploadConfig = {
   headers: { 'Content-Type': 'multipart/form-data' },
   timeout: UPLOAD_TIMEOUT_MS,
@@ -71,7 +73,7 @@ client.interceptors.response.use(
         status: 408,
         data: {
           detail: isUpload
-            ? "Le téléversement a expiré. Essayez avec un fichier plus léger ou une meilleure connexion."
+            ? "Le téléversement prend plus de temps que prévu. Vérifiez votre connexion ou réessayez avec moins de photos."
             : "La requête a expiré. Vérifiez votre connexion et réessayez.",
         },
       }

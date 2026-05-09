@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     resend_api_key: str
     from_email: str = "noreply@logeo.ca"
     admin_email: str = "admin@logeo.ca"
+    # Adresse perso d'Edouard — Reply-To injecté sur tous les emails sortants.
+    # Évite de monter un vrai mailbox sur logeo.ca : les replies des users
+    # tombent directement dans sa boîte. Vide → header omis (envoi normal).
+    reply_to_email: str = ""
 
     frontend_url: str = "https://logeo.ca"
     backend_url: str = "https://api.logeo.ca"

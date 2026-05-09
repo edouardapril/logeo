@@ -34,11 +34,12 @@ def _log_email_config():
             key_preview,
         )
     else:
+        reply_to = settings.reply_to_email or "<none>"
         log.info(
-            "[EMAIL CONFIG] api_key=%s · from=%s · "
+            "[EMAIL CONFIG] api_key=%s · from=%s · reply_to=%s · "
             "(si emails non livrés : vérifier que le domaine de from_email "
             "est verified sur Resend dashboard)",
-            key_preview, from_email,
+            key_preview, from_email, reply_to,
         )
 
 _log_email_config()
@@ -83,6 +84,11 @@ async def _send(to: str, subject: str, html: str, attachments: list[dict] | None
         "subject": subject,
         "html": html,
     }
+    # Reply-To : redirige les replies vers la boîte perso d'Edouard sans avoir
+    # à monter un mailbox sur logeo.ca. Resend Python SDK accepte `reply_to`
+    # comme clé du payload (string ou liste). Header omis si la var est vide.
+    if settings.reply_to_email:
+        payload["reply_to"] = settings.reply_to_email
     if attachments:
         import base64
         payload["attachments"] = [

@@ -211,21 +211,31 @@ async def get_deal(
     )
     ndas_count = int(ndas_res.scalar() or 0)
 
+    # ── Transformation paths → URLs signées (LOTPLOT 16B) ─────────────────────
+    # Cet endpoint n'a pas de `response_model=DealAdminView` — le dict est
+    # retourné brut, donc les `field_serializer` du schéma ne s'appliquent pas.
+    # Sans cette transformation, le frontend reçoit `photo_paths=["documents/…"]`
+    # et tente de signer côté client via /storage/sign?path=…, qui exige un
+    # Bearer header que <img> n'envoie pas → 401 → image cassée.
+    payload = dict(deal.__dict__)
+    payload["photo_paths"] = storage_svc.to_signed_urls(deal.photo_paths)
+    payload["teaser_photo_path"] = storage_svc.to_public_url(deal.teaser_photo_path)
+    payload["teaser_photo_paths"] = storage_svc.to_public_urls(deal.teaser_photo_paths)
+    payload["full_report_path"] = storage_svc.to_signed_url(deal.full_report_path)
+    payload["inspection_report_path"] = storage_svc.to_signed_url(deal.inspection_report_path)
+    payload["documents"] = storage_svc.to_signed_url_values(deal.documents)
+
     return {
-        **deal.__dict__,
+        **payload,
         "courtier_name": courtier.full_name,
         "courtier_email": courtier.email,
         "courtier_phone": courtier.phone,
         "agency_name": courtier.agency_name,
         # Champs lus directement par DealHero (deal.displayed_price / .bidders_count).
-        # Sans ces clés au niveau racine, le hero retombe sur floor_price et le prix
-        # affiché ne bouge plus après un bid — d'où le bug LOTPLOT 15C.
         "displayed_price": state["current_price"],
         "bidders_count": state["bidders_count"],
         "ndas_count": ndas_count,
         # Vue admin complète : maxs individuels, identité du leader, historique.
-        # `current_user.id` permet d'exposer `i_am_leading`/`my_max` si l'admin
-        # bidde en son nom propre.
         "auction_state": serialize_auction_state(state, "admin", current_user.id),
     }
 
