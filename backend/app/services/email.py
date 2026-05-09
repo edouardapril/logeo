@@ -228,18 +228,128 @@ async def send_bid_soumis_admin(db: AsyncSession, deal_id: uuid.UUID, acheteur_n
 
 
 async def send_fermeture_gagnant(db: AsyncSession, gagnant: User, deal_id: uuid.UUID, amount: int, fee: int):
-    deposit = int(fee * 0.25)
+    """LEGACY (LOTPLOT 19) — l'email gagnant passe désormais par
+    `send_due_diligence_started`. Cette fonction reste pour compat des
+    callers anciens mais ne devrait plus être appelée par le flow normal.
+    """
+    return await send_due_diligence_started(
+        db, gagnant, deal_id, amount, fee, dd_deadline=None,
+    )
+
+
+async def send_due_diligence_started(
+    db: AsyncSession,
+    gagnant: User,
+    deal_id: uuid.UUID,
+    winning_price: int,
+    fee: int,
+    dd_deadline,
+):
+    """Email envoyé au gagnant à la fermeture (LOTPLOT 19).
+
+    Annonce la victoire, le prix final (= winning_price proxy, pas le max
+    privé du gagnant), la fenêtre DD de 5 jours, et précise que les frais
+    Logeo (1 % du prix final) seront payables à la signature de la PA via
+    virement Interac (pas de dépôt avant).
+    """
+    short = str(deal_id)[:8].upper()
+    deadline_str = (
+        dd_deadline.strftime("%d %b %Y %H:%M UTC")
+        if dd_deadline else "5 jours après la fermeture"
+    )
     html = f"""
     <h2>Félicitations ! Vous avez remporté l'enchère</h2>
     <p>Bonjour {gagnant.full_name},</p>
-    <p>Votre offre de <strong>{amount:,} $</strong> est la plus haute sur ce deal.</p>
-    <h3>Instructions pour le dépôt (25% des frais Logeo)</h3>
-    <p>Veuillez envoyer <strong>{deposit:,} $</strong> par Interac à : <strong>{settings.admin_email}</strong></p>
-    <p>Message Interac : <strong>LOGEO-{str(deal_id)[:8].upper()}</strong></p>
-    <p><strong>Important :</strong> Ce dépôt doit être reçu dans les 48h, faute de quoi le deal sera offert au prochain enchérisseur.</p>
+    <p>Vous êtes le gagnant de l'enchère pour le deal <strong>#{short}</strong>.</p>
+    <p><strong>Prix final :</strong> {winning_price:,} $ CAD</p>
+    <p><strong>Frais Logeo (1 %) :</strong> {fee:,} $ CAD — payables à la signature
+       de la promesse d'achat (PA) par virement Interac.</p>
+
+    <h3 style="color:#9A3412;">Période de due diligence — 5 jours</h3>
+    <p>Vous avez jusqu'au <strong>{deadline_str}</strong> pour finaliser votre due
+       diligence (inspection, vérifications financières, conditions). Pendant
+       cette période, vous pouvez :</p>
+    <ul>
+      <li><strong>Confirmer la procédure</strong> → la PA sera préparée hors plateforme.</li>
+      <li><strong>Vous retirer (DD négative)</strong> → le deal est offert au prochain enchérisseur.</li>
+    </ul>
+    <p>
+      <a href="{settings.frontend_url}/acheteur/deals/{deal_id}"
+         style="display:inline-block;padding:12px 22px;background:#EA580C;color:white;
+                text-decoration:none;border-radius:8px;font-weight:600;">
+        Accéder à mon dossier
+      </a>
+    </p>
+    <p style="color:#666;font-size:13px;">
+      Aucun débit n'a lieu à ce stade. Les frais Logeo seront facturés
+      uniquement à la signature de la PA.
+    </p>
     """
-    resend_id = await _send(gagnant.email, "[Logeo] Vous avez remporté l'enchère - Instructions de paiement", html)
+    resend_id = await _send(
+        gagnant.email,
+        "[Logeo] Félicitations — Due diligence ouverte (5 jours)",
+        html,
+    )
     await _log_email(db, EmailType.fermeture_gagnant, gagnant.id, deal_id, resend_id)
+
+
+async def send_interac_instructions(
+    db: AsyncSession,
+    gagnant: User,
+    deal_id: uuid.UUID,
+    fee: int,
+    winning_price: int,
+):
+    """Envoyé au gagnant après que l'admin a marqué la PA comme signée.
+    Donne les instructions de virement Interac (LOTPLOT 19F).
+    """
+    short = str(deal_id)[:8].upper()
+    html = f"""
+    <h2>Promesse d'achat signée — paiement des frais Logeo</h2>
+    <p>Bonjour {gagnant.full_name},</p>
+    <p>La promesse d'achat pour le deal <strong>#{short}</strong> est signée.
+       Reste à régler les frais Logeo de 1 % du prix final.</p>
+
+    <h3 style="color:#9A3412;">Instructions Interac</h3>
+    <ul style="line-height:1.8;">
+      <li><strong>Montant :</strong> {fee:,} $ CAD (1 % de {winning_price:,} $)</li>
+      <li><strong>Destinataire :</strong> {settings.interac_email}</li>
+      <li><strong>Référence (message Interac) :</strong> LOGEO-{short}</li>
+    </ul>
+    <p style="color:#666;font-size:13px;">
+      Une fois le virement reçu, l'admin Logeo le confirmera et le deal
+      sera marqué comme finalisé. Pour toute question, répondez à cet email.
+    </p>
+    """
+    resend_id = await _send(
+        gagnant.email,
+        f"[Logeo] PA signée — Instructions de paiement Interac · #{short}",
+        html,
+    )
+    await _log_email(db, EmailType.depot_confirme, gagnant.id, deal_id, resend_id)
+
+
+async def send_payment_confirmed(
+    db: AsyncSession,
+    gagnant: User,
+    deal_id: uuid.UUID,
+    fee: int,
+):
+    """Confirmation au gagnant que le virement Interac est reçu (LOTPLOT 19F)."""
+    short = str(deal_id)[:8].upper()
+    html = f"""
+    <h2>Paiement reçu — deal finalisé</h2>
+    <p>Bonjour {gagnant.full_name},</p>
+    <p>Nous avons bien reçu votre virement Interac de <strong>{fee:,} $ CAD</strong>
+       pour le deal <strong>#{short}</strong>. Les frais Logeo sont entièrement réglés.</p>
+    <p>Merci pour votre confiance — bonne continuation avec votre acquisition.</p>
+    """
+    resend_id = await _send(
+        gagnant.email,
+        f"[Logeo] Paiement reçu — deal finalisé · #{short}",
+        html,
+    )
+    await _log_email(db, EmailType.pa_signee, gagnant.id, deal_id, resend_id)
 
 
 async def send_fermeture_perdants(db: AsyncSession, perdants: list[User], deal_id: uuid.UUID):
@@ -262,12 +372,11 @@ async def send_depot_confirme(
     deal_id: uuid.UUID,
     amount: int,
 ):
-    """Email tripartite d'introduction officielle (sprint v13 item 4).
+    """Email tripartite d'introduction officielle.
 
-    Envoyé automatiquement quand le dépôt 25 % du gagnant est confirmé Stripe.
-    Acheteur reçoit les coordonnées du courtier (incl. OACIQ).
-    Courtier reçoit les coordonnées de l'acheteur.
-    Admin reçoit une copie pour traçabilité.
+    LOTPLOT 19 : plus appelé par le flow normal (le close_auction envoie
+    `send_due_diligence_started` à la place). Conservé pour compat. Texte
+    mis à jour pour refléter le workflow Interac manuel si jamais déclenché.
     """
     from app.models.deal import Deal
     deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
@@ -285,9 +394,9 @@ async def send_depot_confirme(
         if courtier.oaciq_number else ""
     )
     gagnant_html = f"""
-    <h2>Félicitations ! Vous avez remporté l'enchère.</h2>
+    <h2>Introduction officielle — votre courtier</h2>
     <p>Bonjour {gagnant.full_name},</p>
-    <p>Votre dépôt de <strong>{amount:,} $ CAD</strong> a été confirmé. L'introduction officielle est faite.</p>
+    <p>L'introduction officielle est faite pour le deal {short}.</p>
 
     <h3 style="color:#9A3412;">Voici les coordonnées de votre courtier :</h3>
     <p><strong>Nom :</strong> {courtier.full_name}</p>
@@ -297,15 +406,14 @@ async def send_depot_confirme(
     {oaciq_line}
 
     <h3 style="color:#9A3412;">Prochaines étapes</h3>
-    <p>Vous avez <strong>5 jours ouvrables</strong> pour compléter votre due diligence
-       (visite physique, vérifications notaires, financement) et confirmer dans votre portail Logeo.</p>
-    <p>Une fois confirmé, le solde 75 % des frais Logeo sera débité automatiquement de votre carte enregistrée.</p>
+    <p>5 jours ouvrables pour compléter votre due diligence puis signer la PA hors plateforme.
+       Les frais Logeo (1 % du prix final) seront payables par virement Interac à la signature.</p>
 
     <p>
       <a href="{settings.frontend_url}/acheteur/deals/{deal_id}"
          style="display:inline-block;padding:12px 22px;background:#EA580C;color:white;
                 text-decoration:none;border-radius:8px;font-weight:600;">
-        Confirmer ma due diligence
+        Accéder à mon dossier
       </a>
     </p>
     """.replace(",", " ")
@@ -316,8 +424,7 @@ async def send_depot_confirme(
     courtier_html = f"""
     <h2>Un acheteur a remporté l'enchère sur votre deal.</h2>
     <p>Bonjour {courtier.full_name},</p>
-    <p>L'enchère sur le deal <strong>{type_label} · {city}</strong> est finalisée.
-       Le dépôt 25 % a été confirmé.</p>
+    <p>L'enchère sur le deal <strong>{type_label} · {city}</strong> est finalisée.</p>
 
     <h3 style="color:#9A3412;">Coordonnées de votre acheteur :</h3>
     <p><strong>Nom :</strong> {gagnant.full_name}</p>
@@ -326,8 +433,7 @@ async def send_depot_confirme(
     <p><strong>Prix retenu :</strong> {amount:,} $ CAD</p>
 
     <p>Vous pouvez le contacter directement pour organiser la visite et finaliser la PA.</p>
-    <p>L'acheteur a <strong>5 jours ouvrables</strong> pour compléter sa due diligence.
-       Vous serez informé du déclenchement du solde 75 %.</p>
+    <p>L'acheteur a <strong>5 jours</strong> pour compléter sa due diligence avant la signature de la PA.</p>
 
     <p>
       <a href="{settings.frontend_url}/courtier/deals/{deal_id}"

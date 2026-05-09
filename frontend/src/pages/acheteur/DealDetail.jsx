@@ -15,7 +15,7 @@ import {
 } from '../../api/acheteur'
 import {
   getPaymentMethodApi, getFeeQuoteApi, getMyDealPaymentsApi,
-  completeDueDiligenceApi,
+  completeDueDiligenceApi, ddWithdrawApi,
 } from '../../api/payments'
 import { getMeApi } from '../../api/auth'
 import Spinner from '../../components/ui/Spinner'
@@ -197,9 +197,16 @@ export default function DealDetail() {
   const dueDiligenceMutation = useMutation({
     mutationFn: () => completeDueDiligenceApi(dealId),
     onSuccess: () => {
-      toast.success('Due diligence confirmée · solde débité')
+      toast.success("Due diligence confirmée · en attente de la PA")
       queryClient.invalidateQueries({ queryKey: ['acheteur'] })
-      queryClient.invalidateQueries({ queryKey: ['deal-payments', dealId] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
+  })
+  const ddWithdrawMutation = useMutation({
+    mutationFn: () => ddWithdrawApi(dealId),
+    onSuccess: () => {
+      toast.success("Vous vous êtes retiré du deal — l'admin sera notifié.")
+      queryClient.invalidateQueries({ queryKey: ['acheteur'] })
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
@@ -230,9 +237,10 @@ export default function DealDetail() {
   const hasCard = !!pm?.has_card
   const isAuctionOpen = deal.status === 'bid' && deal.bid_close_at && new Date(deal.bid_close_at) > new Date()
   const myWinningBid = myWinningBidEarly
+  // LOTPLOT 19 : depositPayment/balancePayment legacy — uniquement pour deals
+  // pré-LOTPLOT 19 ; non lus par les nouveaux blocs UI.
   const depositPayment = dealPayments?.find(p => p.type === 'deposit' && p.state === 'succeeded')
   const balancePayment = dealPayments?.find(p => p.type === 'balance')
-  const ddDone = !!deal.due_diligence_completed_at
 
   // Calculs financiers
   const capRate = deal.net_revenue && deal.floor_price
@@ -920,7 +928,7 @@ export default function DealDetail() {
             </div>
           )}
 
-          {/* Bandeau gagnant + paiements */}
+          {/* Bandeau gagnant — workflow MVP (LOTPLOT 19) : DD 5j, puis PA + Interac */}
           {myWinningBid && (
             <div className="card p-5 bg-[#FFEDD5] border-[#FDBA74]">
               <div className="flex gap-2 mb-3">
@@ -928,85 +936,84 @@ export default function DealDetail() {
                 <div>
                   <h4 className="font-semibold text-[#9A3412] text-sm">Vous avez remporté l'enchère !</h4>
                   <p className="text-xs text-[#9A3412]/80 mt-1">
-                    Offre gagnante : <strong>{formatMoney(myWinningBid.amount)}</strong>
+                    Prix final : <strong>{formatMoney(deal.winning_price ?? myWinningBid.amount)}</strong>
                   </p>
-                </div>
-              </div>
-              {feeQuote && (
-                <dl className="text-xs space-y-1 mb-1 pl-7">
-                  <div className="flex justify-between"><dt>Frais Logeo (1 %)</dt><dd className="font-semibold">{formatMoney(feeQuote.total_fee)}</dd></div>
-                  <div className="flex justify-between"><dt>Dépôt 25 %</dt><dd className="font-semibold">{formatMoney(feeQuote.deposit)}</dd></div>
-                  <div className="flex justify-between"><dt>Solde</dt><dd className="font-semibold">{formatMoney(feeQuote.balance)}</dd></div>
-                </dl>
-              )}
-            </div>
-          )}
-
-          {myWinningBid && depositPayment && (
-            <div className="card p-5 bg-emerald-50 border-emerald-200">
-              <div className="flex gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-emerald-900 text-sm">
-                    Dépôt débité · {formatMoney(Math.round(depositPayment.amount_cents / 100))}
-                  </h4>
-                  <p className="text-xs text-emerald-800 mt-1">
-                    Confirmé le {new Date(depositPayment.succeeded_at || depositPayment.created_at).toLocaleString('fr-CA')}
-                  </p>
+                  {feeQuote && (
+                    <p className="text-xs text-[#9A3412]/80 mt-1">
+                      Frais Logeo (1 %) : <strong>{formatMoney(feeQuote.total_fee)}</strong> —
+                      payables à la signature de la PA par virement Interac.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {myWinningBid && depositPayment && !ddDone && !balancePayment && feeQuote && (
+          {myWinningBid && deal.status === 'due_diligence' && (
             <div className="card p-5">
               <h4 className="font-semibold text-gray-900 text-sm mb-2 flex items-center gap-2">
-                <Receipt className="h-4 w-4 text-[#C2410C]" /> Confirmer la due diligence
+                <Receipt className="h-4 w-4 text-[#C2410C]" /> Due diligence en cours
               </h4>
               <p className="text-xs text-gray-600 mb-3">
-                Cliquez ci-dessous pour confirmer la fin de votre due diligence. Le solde
-                de <strong>{formatMoney(feeQuote.balance)}</strong> sera alors débité automatiquement.
+                Profitez de cette fenêtre pour finaliser inspection, vérifications et conditions.
+                À l'issue : <strong>confirmez</strong> pour signer la PA, ou <strong>retirez-vous</strong> sans pénalité.
               </p>
               {deal.due_diligence_deadline && (
                 <div className="mb-3 p-2 rounded-lg bg-amber-50 border border-amber-200">
-                  <p className="text-xs text-amber-800 font-medium mb-1">Délai pour confirmer :</p>
+                  <p className="text-xs text-amber-800 font-medium mb-1">Délai restant :</p>
                   <Timer closeAt={deal.due_diligence_deadline} size="sm" />
                 </div>
               )}
-              <button
-                onClick={() => dueDiligenceMutation.mutate()}
-                disabled={dueDiligenceMutation.isPending}
-                className="btn-primary w-full"
-              >
-                {dueDiligenceMutation.isPending ? 'Traitement...' : "J'ai complété ma due diligence"}
-              </button>
-            </div>
-          )}
-
-          {balancePayment && balancePayment.state === 'succeeded' && (
-            <div className="card p-5 bg-emerald-50 border-emerald-200">
-              <div className="flex gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-emerald-900 text-sm">
-                    Solde débité · {formatMoney(Math.round(balancePayment.amount_cents / 100))}
-                  </h4>
-                  <p className="text-xs text-emerald-800 mt-1">
-                    Frais Logeo entièrement réglés.
-                  </p>
-                </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => dueDiligenceMutation.mutate()}
+                  disabled={dueDiligenceMutation.isPending}
+                  className="btn-primary w-full"
+                >
+                  {dueDiligenceMutation.isPending ? 'Traitement...' : 'Confirmer la procédure → PA'}
+                </button>
+                <button
+                  onClick={() => ddWithdrawMutation.mutate()}
+                  disabled={ddWithdrawMutation.isPending}
+                  className="btn-secondary w-full"
+                >
+                  Me retirer (DD négative)
+                </button>
               </div>
             </div>
           )}
 
-          {balancePayment && balancePayment.state === 'failed' && (
-            <div className="card p-5 bg-red-50 border-red-200">
+          {myWinningBid && deal.status === 'awaiting_pa' && (
+            <div className="card p-5 bg-emerald-50 border-emerald-200">
+              <h4 className="font-semibold text-emerald-900 text-sm">Procédure confirmée — en attente de la PA</h4>
+              <p className="text-xs text-emerald-800 mt-1">
+                La promesse d'achat est en cours de préparation hors plateforme. Vous serez notifié
+                par email une fois la PA signée par toutes les parties.
+              </p>
+            </div>
+          )}
+
+          {myWinningBid && deal.status === 'awaiting_payment' && (
+            <div className="card p-5 bg-amber-50 border-amber-200">
+              <h4 className="font-semibold text-amber-900 text-sm flex items-center gap-2">
+                <Receipt className="h-4 w-4" /> PA signée — paiement Interac requis
+              </h4>
+              <p className="text-xs text-amber-800 mt-1">
+                Les instructions de virement vous ont été envoyées par email
+                {feeQuote && <> (montant : <strong>{formatMoney(feeQuote.total_fee)}</strong>)</>}.
+                Une fois reçu, l'admin Logeo confirmera le paiement et le deal sera finalisé.
+              </p>
+            </div>
+          )}
+
+          {myWinningBid && deal.status === 'paid' && (
+            <div className="card p-5 bg-emerald-50 border-emerald-200">
               <div className="flex gap-2">
-                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="font-semibold text-red-900 text-sm">Échec du débit du solde</h4>
-                  <p className="text-xs text-red-800 mt-1">
-                    {balancePayment.failure_message || 'Carte refusée.'}
+                  <h4 className="font-semibold text-emerald-900 text-sm">Deal finalisé</h4>
+                  <p className="text-xs text-emerald-800 mt-1">
+                    Frais Logeo entièrement réglés. Merci de votre confiance.
                   </p>
                 </div>
               </div>
@@ -1088,9 +1095,9 @@ export default function DealDetail() {
         <div className="space-y-4 text-sm text-gray-700">
           <p>En cas de victoire, je m'engage à payer les frais Logeo selon la structure suivante :</p>
           <ul className="list-disc list-inside space-y-1.5 pl-2">
-            <li><strong>1 % du prix gagnant</strong> {deal.fee_pct && ` (${deal.fee_pct}% configuré pour ce deal)`}</li>
-            <li><strong>25 % de dépôt</strong> débité à la fermeture (min 2 500 $)</li>
-            <li><strong>75 % de solde</strong> à la confirmation de due diligence</li>
+            <li><strong>1 % du prix final</strong> {deal.fee_pct && ` (${deal.fee_pct}% configuré pour ce deal)`}</li>
+            <li>Payables <strong>à la signature de la promesse d'achat</strong> (PA), par <strong>virement Interac</strong></li>
+            <li>Aucun débit automatique avant la PA — je dispose de 5 jours de due diligence pour me retirer sans pénalité</li>
           </ul>
           <div className="flex justify-end gap-2 pt-4">
             <button onClick={() => setEngagementModal(false)} className="btn-secondary">Annuler</button>

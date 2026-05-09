@@ -8,9 +8,9 @@ import {
 } from 'lucide-react'
 import {
   adminGetDealApi, adminListBidsApi, verdictApi,
-  confirmDepositApi, confirmBalanceApi,
   archiveDealApi, unarchiveDealApi, deleteDealApi,
 } from '../../api/admin'
+import { adminMarkPaSignedApi, adminMarkPaidApi } from '../../api/payments'
 import { placeBidApi } from '../../api/acheteur'
 import { useAuth } from '../../contexts/AuthContext'
 import Spinner from '../../components/ui/Spinner'
@@ -34,7 +34,8 @@ export default function AdminDealDetail() {
   const [verdictForm, setVerdictForm] = useState({
     fee_pct: 1.5, fee_minimum: 5000, bid_close_at: '', nogo_reason: '',
   })
-  const [interacModal, setInteracModal] = useState(null) // 'deposit' | 'balance' | null
+  // LOTPLOT 19F : workflow Interac manuel — admin clique 'PA signée' puis 'Paiement reçu'
+  const [paidModal, setPaidModal] = useState(false)
   const [interacRef, setInteracRef] = useState('')
   const [deleteModal, setDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -62,22 +63,24 @@ export default function AdminDealDetail() {
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
 
-  const confirmDeposit = useMutation({
-    mutationFn: (bidId) => confirmDepositApi(dealId, { bid_id: bidId, interac_ref: interacRef, payment_type: 'deposit' }),
-    onSuccess: () => {
-      toast.success('Dépôt confirmé · Introduction officielle déclenchée')
+  // LOTPLOT 19F — workflow Interac manuel : PA signée puis Paiement reçu.
+  const markPaSigned = useMutation({
+    mutationFn: () => adminMarkPaSignedApi(dealId),
+    onSuccess: (data) => {
+      toast.success(
+        `PA marquée comme signée · instructions Interac envoyées au gagnant (${data?.fee?.toLocaleString('fr-CA')} $)`,
+      )
       queryClient.invalidateQueries({ queryKey: ['admin'] })
-      setInteracModal(null); setInteracRef('')
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
 
-  const confirmBalance = useMutation({
-    mutationFn: (bidId) => confirmBalanceApi(dealId, { bid_id: bidId, interac_ref: interacRef, payment_type: 'balance' }),
+  const markPaid = useMutation({
+    mutationFn: () => adminMarkPaidApi(dealId, interacRef.trim() || null),
     onSuccess: () => {
-      toast.success('Solde confirmé · Deal archivé')
+      toast.success('Paiement confirmé · Deal finalisé')
       queryClient.invalidateQueries({ queryKey: ['admin'] })
-      setInteracModal(null); setInteracRef('')
+      setPaidModal(false); setInteracRef('')
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
@@ -137,8 +140,9 @@ export default function AdminDealDetail() {
 
   const winner = bids?.find(b => b.status === 'winner')
   const canVerdict = deal.status === 'analyse'
-  const canConfirmDeposit = deal.status === 'bid' && winner
-  const canConfirmBalance = deal.status === 'pa_signed' && winner
+  // LOTPLOT 19F : nouveaux gates workflow Interac manuel
+  const canMarkPaSigned = ['due_diligence', 'awaiting_pa'].includes(deal.status) && winner
+  const canMarkPaid = ['awaiting_payment', 'pa_signed'].includes(deal.status) && winner
   const isAuctionOpen = deal.status === 'bid' && deal.bid_close_at && new Date(deal.bid_close_at) > new Date()
   const auctionState = deal.auction_state || {}
   // LOTPLOT 17C : l'admin ne peut pas bidder sur ses propres deals (conflit
@@ -203,14 +207,21 @@ export default function AdminDealDetail() {
               <Hammer className="h-4 w-4" /> Faire une offre
             </button>
           )}
-          {canConfirmDeposit && (
-            <button onClick={() => setInteracModal('deposit')} className="btn-primary text-sm">
-              Confirmer dépôt 25 %
+          {canMarkPaSigned && (
+            <button
+              onClick={() => markPaSigned.mutate()}
+              disabled={markPaSigned.isPending}
+              className="btn-primary text-sm"
+            >
+              Marquer PA signée
             </button>
           )}
-          {canConfirmBalance && (
-            <button onClick={() => setInteracModal('balance')} className="btn-primary text-sm">
-              Confirmer solde 75 %
+          {canMarkPaid && (
+            <button
+              onClick={() => setPaidModal(true)}
+              className="btn-primary text-sm"
+            >
+              Paiement Interac reçu
             </button>
           )}
           {deal.archived_at ? (
@@ -411,33 +422,26 @@ export default function AdminDealDetail() {
         </div>
       </Modal>
 
-      <Modal open={!!interacModal} onClose={() => setInteracModal(null)}
-             title={interacModal === 'deposit' ? 'Confirmer dépôt Interac (25%)' : 'Confirmer solde Interac (75%)'}>
+      {/* LOTPLOT 19F — confirmer la réception du virement Interac → status=paid */}
+      <Modal open={paidModal} onClose={() => setPaidModal(false)} title="Confirmer le paiement Interac reçu">
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            {interacModal === 'deposit'
-              ? 'Le gagnant sera annoncé publiquement et l\'introduction officielle envoyée.'
-              : 'Le deal sera archivé et tous les paiements considérés comme finalisés.'}
+            Le deal sera marqué comme finalisé et un email de confirmation sera envoyé au gagnant.
           </p>
           <Input
-            label="Référence Interac"
+            label="Référence Interac (optionnel)"
             value={interacRef}
             onChange={(e) => setInteracRef(e.target.value)}
             placeholder="ex: NOTIF-12345 ou montant + heure"
-            required
           />
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={() => setInteracModal(null)} className="btn-secondary">Annuler</button>
+            <button onClick={() => setPaidModal(false)} className="btn-secondary">Annuler</button>
             <button
-              onClick={() => {
-                if (!interacRef.trim()) { toast.error('Référence requise'); return }
-                if (interacModal === 'deposit') confirmDeposit.mutate(winner.id)
-                else confirmBalance.mutate(winner.id)
-              }}
-              disabled={confirmDeposit.isPending || confirmBalance.isPending}
+              onClick={() => markPaid.mutate()}
+              disabled={markPaid.isPending}
               className="btn-primary"
             >
-              Confirmer
+              Confirmer paiement reçu
             </button>
           </div>
         </div>

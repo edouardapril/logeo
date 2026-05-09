@@ -8,13 +8,31 @@ import enum
 
 
 class DealStatus(str, enum.Enum):
+    """Pipeline d'un deal — LOTPLOT 19.
+
+    Flow nominal :
+        draft → analyse → bid → due_diligence → awaiting_pa
+              → pa_signed → awaiting_payment → paid
+
+    Branches terminales :
+        nogo            : refus admin avant publication
+        auction_ended   : 0 bid / plancher non atteint
+        dd_failed       : gagnant se retire pendant la DD (peut déclencher fallback 2e offrant)
+
+    Note : `intro` (legacy, ≡ due_diligence) reste dans l'enum Postgres pour la
+    compat de rollback mais n'est plus produit par le code (LOTPLOT 19).
+    """
     draft = "draft"
     analyse = "analyse"
     bid = "bid"
-    intro = "intro"
+    due_diligence = "due_diligence"
+    awaiting_pa = "awaiting_pa"
     pa_signed = "pa_signed"
+    awaiting_payment = "awaiting_payment"
+    paid = "paid"
     nogo = "nogo"
-    auction_ended = "auction_ended"  # Enchère fermée sans gagnant (0 bid / plancher non atteint)
+    auction_ended = "auction_ended"
+    dd_failed = "dd_failed"
 
 
 class PropertyType(str, enum.Enum):
@@ -93,9 +111,20 @@ class Deal(Base):
     fee_pct: Mapped[float | None] = mapped_column(Float)
     fee_minimum: Mapped[int | None] = mapped_column(Integer)
 
-    # Échéances Stripe
-    deposit_retry_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Prix final calculé à la fermeture (= current_price du proxy bid au moment
+    # exact de la close, ≠ max bid privé du gagnant). C'est ce montant qui sert
+    # de base aux frais Logeo (1 %) et qui est affiché publiquement.
+    winning_price: Mapped[int | None] = mapped_column(Integer)
+
+    # Échéances workflow MVP (LOTPLOT 19)
     due_diligence_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dd_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dd_withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pa_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Legacy (dépôt 25 % désactivé en LOTPLOT 19) — colonnes conservées pour la compat DB
+    deposit_retry_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_diligence_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

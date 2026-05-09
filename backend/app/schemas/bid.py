@@ -79,3 +79,10 @@ class InteracConfirm(BaseModel):
     interac_ref: str
     bid_id: uuid.UUID
     payment_type: str  # "deposit" ou "balance"
+
+
+# LOTPLOT 19F — workflow MVP via Interac manuel.
+# `mark-paid` n'a besoin que de la référence Interac optionnelle ; le bid
+# gagnant est récupéré via `_load_winner` côté router.
+class MarkPaidRequest(BaseModel):
+    interac_ref: str | None = None

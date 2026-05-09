@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     deposit_retry_hours: int = 48
     due_diligence_hours: int = 24
 
+    # LOTPLOT 19 : workflow MVP via virement Interac manuel
+    # Email de destination des virements Interac (envoyé dans les instructions
+    # au gagnant après "PA signée"). Default = paiements@logeo.ca, override
+    # via env var pour environnements de test.
+    interac_email: str = "paiements@logeo.ca"
+
     # Supabase Storage (optionnel — bascule vers cloud si configuré)
     storage_backend: str = "local"  # "local" ou "supabase"
     supabase_url: str = ""           # ex: https://xxx.supabase.co

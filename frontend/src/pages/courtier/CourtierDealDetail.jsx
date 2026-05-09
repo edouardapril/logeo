@@ -438,8 +438,8 @@ export default function CourtierDealDetail() {
         )}
       </div>
 
-      {/* Upload PA si statut intro */}
-      {deal.status === 'intro' && (
+      {/* Upload PA pendant la fenêtre DD ou en attente PA (LOTPLOT 19) */}
+      {(deal.status === 'due_diligence' || deal.status === 'awaiting_pa') && (
         <div className="card p-6">
           <h2 className="font-semibold text-gray-900 mb-2">Uploader la promesse d'achat signée</h2>
           <p className="text-sm text-gray-600 mb-4">

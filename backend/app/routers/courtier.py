@@ -52,7 +52,7 @@ async def courtier_dashboard(
             Deal.archived_at.is_(None),
             Deal.status.in_([
                 DealStatus.draft, DealStatus.analyse,
-                DealStatus.bid, DealStatus.intro,
+                DealStatus.bid, DealStatus.due_diligence,
             ]),
         )
     )
@@ -553,8 +553,13 @@ async def upload_pa(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    if deal.status != DealStatus.intro:
-        raise HTTPException(status_code=400, detail="La PA ne peut être uploadée qu'au stade intro")
+    # LOTPLOT 19 : la PA peut être uploadée pendant la due diligence ou
+    # quand l'acheteur a confirmé sa procédure (awaiting_pa).
+    if deal.status not in (DealStatus.due_diligence, DealStatus.awaiting_pa):
+        raise HTTPException(
+            status_code=400,
+            detail="La PA ne peut être uploadée qu'après la fermeture de l'enchère (statut due_diligence ou awaiting_pa).",
+        )
 
     content = await pa_file.read()
     path = save_uploaded_file(content, pa_file.filename, f"deals/{deal_id}/pa")

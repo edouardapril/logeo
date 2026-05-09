@@ -110,7 +110,7 @@ async def public_courtier_profile(
     published_res = await db.execute(
         select(func.count(Deal.id)).where(
             Deal.courtier_id == user_id,
-            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.status.in_([DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed]),
             Deal.archived_at.is_(None),
         )
     )
@@ -215,7 +215,7 @@ async def leaderboard(
             completed_expr.label("completed"),
         )
         .where(
-            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.status.in_([DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed]),
             Deal.archived_at.is_(None),
         )
         .group_by(Deal.courtier_id)
@@ -384,7 +384,7 @@ async def public_deal_detail(
     if not deal or deal.archived_at is not None:
         raise HTTPException(status_code=404, detail="Deal introuvable")
     # Statuts publics : enchère active ou terminée récemment
-    if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+    if deal.status not in (DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
         raise HTTPException(status_code=404, detail="Deal non disponible publiquement")
 
     state = await compute_auction_state(deal, db)
@@ -406,7 +406,7 @@ async def public_deal_questions(
     deal = res.scalar_one_or_none()
     if not deal or deal.archived_at is not None:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    if deal.status not in (DealStatus.bid, DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+    if deal.status not in (DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
         raise HTTPException(status_code=404, detail="Deal non disponible publiquement")
 
     qres = await db.execute(

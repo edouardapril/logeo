@@ -193,7 +193,7 @@ export default function MesEncheres() {
             </p>
             <p className="text-xs text-red-800 mt-1">
               Une (ou plusieurs) de tes due diligence expire dans moins de 24h.
-              Sans confirmation, le dépôt 25% est conservé et le deal passe au 2e offrant.
+              Sans confirmation, tu seras considéré désistant et le deal passera au 2ᵉ offrant.
             </p>
           </div>
         </div>

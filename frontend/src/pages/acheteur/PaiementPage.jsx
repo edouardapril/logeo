@@ -29,7 +29,9 @@ const STATE_BADGE = {
   refunded:        { cls: 'bg-gray-100 text-gray-700 ring-gray-200', icon: AlertCircle, label: 'Remboursé' },
 }
 
-const TYPE_LABEL = { deposit: 'Dépôt 25 %', balance: 'Solde 75 %' }
+// Labels legacy pour les paiements Stripe (LOTPLOT 19 : flow Stripe désactivé,
+// mais l'historique des paiements pré-LOTPLOT 19 garde ces types).
+const TYPE_LABEL = { deposit: 'Dépôt (legacy)', balance: 'Solde (legacy)' }
 
 function StateChip({ state }) {
   const cfg = STATE_BADGE[state] || STATE_BADGE.pending

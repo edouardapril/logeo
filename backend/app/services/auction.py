@@ -219,12 +219,28 @@ async def maybe_anti_snipe(deal: Deal, db: AsyncSession, db_factory) -> bool:
 
 
 async def close_auction(deal_id: uuid.UUID, db: AsyncSession):
+    """Fermeture d'une enchère — LOTPLOT 19.
+
+    Workflow MVP : pas de débit automatique. À la fermeture on calcule le
+    `winning_price` (prix proxy effectif au moment exact de la close) et on
+    transitionne le deal vers `due_diligence` avec une fenêtre de 5 jours.
+    L'acheteur gagnant doit ensuite confirmer (→ awaiting_pa) ou se retirer
+    (→ dd_failed). Les frais Logeo (1 % du winning_price) seront débités
+    manuellement via Interac à la signature de la PA.
+    """
     result = await db.execute(
         select(Deal).where(Deal.id == deal_id)
     )
     deal = result.scalar_one_or_none()
     if not deal or deal.status != DealStatus.bid:
         return
+
+    # ── Calcul du winning_price AVANT mutation des statuts de bid ────────────
+    # Important : on lit l'état proxy (current_price = max(floor, second_max)
+    # + increment, capé à leader_max) AVANT de marquer le winner/loser, sinon
+    # le second_max disparaît et le calcul devient incorrect.
+    state_at_close = await compute_auction_state(deal, db)
+    winning_price = state_at_close["current_price"]
 
     bids_result = await db.execute(
         select(Bid)
@@ -256,40 +272,49 @@ async def close_auction(deal_id: uuid.UUID, db: AsyncSession):
     losing_bids = bids[1:]
 
     winner_bid.status = BidStatus.winner
+    # payment_status `deposit_sent` est legacy (LOTPLOT 19 : plus de dépôt 25 %).
+    # On garde la valeur pour ne pas casser l'enum mais elle ne déclenche plus rien.
     winner_bid.payment_status = PaymentStatus.deposit_sent
 
     for bid in losing_bids:
         bid.status = BidStatus.loser
 
+    # ── Transition vers due_diligence + fenêtre 5 jours ──────────────────────
+    deal.winning_price = winning_price
+    deal.status = DealStatus.due_diligence
+    deal.due_diligence_deadline = datetime.now(timezone.utc) + timedelta(days=5)
     await db.flush()
 
     winner_result = await db.execute(select(User).where(User.id == winner_bid.acheteur_id))
     winner = winner_result.scalar_one()
 
+    # Frais Logeo calculés sur le winning_price (≠ max bid privé du gagnant).
     fee = compute_logeo_fee(
-        winner_bid.amount,
-        deal.fee_pct or 1.5,
-        deal.fee_minimum or 5000,
+        winning_price,
+        deal.fee_pct or 1.0,
+        deal.fee_minimum or 0,
     )
 
-    await email_service.send_fermeture_gagnant(db, winner, deal_id, winner_bid.amount, fee)
+    try:
+        await email_service.send_due_diligence_started(
+            db, winner, deal_id, winning_price, fee, deal.due_diligence_deadline,
+        )
+    except Exception:
+        pass
 
     if losing_bids:
         perdants_result = await db.execute(
             select(User).where(User.id.in_([b.acheteur_id for b in losing_bids]))
         )
         perdants = perdants_result.scalars().all()
-        await email_service.send_fermeture_perdants(db, perdants, deal_id)
+        try:
+            await email_service.send_fermeture_perdants(db, perdants, deal_id)
+        except Exception:
+            pass
 
-    # Débit automatique du dépôt 25%
-    payment, _ = await payment_service.attempt_winner_deposit(deal, db)
-    if payment and payment.state == PaymentState.failed:
-        # Programme le fallback automatique vers le 2e offrant après le délai de retry
-        if deal.deposit_retry_until:
-            schedule_deposit_retry_fallback(deal_id, deal.deposit_retry_until, _DB_FACTORY)
-    elif payment and payment.state == PaymentState.succeeded:
-        if deal.due_diligence_deadline:
-            schedule_due_diligence_fallback(deal_id, deal.due_diligence_deadline, _DB_FACTORY)
+    # LOTPLOT 19 : pas de débit automatique. Plus d'`attempt_winner_deposit`
+    # ni de `schedule_deposit_retry_fallback`. La transition vers awaiting_pa
+    # se fait sur action explicite de l'acheteur (POST /dd-confirm).
 
     # WebSocket : annonce la fermeture (broadcast public + per-user pour le gagnant)
     try:

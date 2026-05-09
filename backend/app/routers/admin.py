@@ -19,7 +19,7 @@ from app.models.sanction import UserSanction
 from app.services import storage as storage_svc
 from app.schemas.user import UserAdminView, UserQualifyRequest
 from app.schemas.deal import DealAdminView, DealVerdict, DealListItem
-from app.schemas.bid import BidAdminView, InteracConfirm
+from app.schemas.bid import BidAdminView, InteracConfirm, MarkPaidRequest
 from app.schemas.payment import PaymentAdminView, PaymentView
 from app.schemas.admin import (
     AdminMetrics, ActiveAuctionView, DDExpiringView,
@@ -636,6 +636,116 @@ async def list_deal_bids(
     return enriched
 
 
+# ── Workflow MVP (LOTPLOT 19) ─────────────────────────────────────────────────
+# Pas de dépôt 25 % à la fermeture. Flux manuel admin :
+#   due_diligence (post-close, fenêtre 5j) →
+#   awaiting_pa (acheteur a confirmé DD) →
+#   pa_signed (admin clique "Marquer PA signée") →
+#   awaiting_payment (email Interac envoyé) →
+#   paid (admin clique "Marquer paiement reçu")
+
+
+def _winning_fee(deal: Deal, winning_price: int | None) -> int:
+    """Frais Logeo = max(fee_pct % × winning_price, fee_minimum). Default 1 %."""
+    if winning_price is None:
+        return 0
+    pct = deal.fee_pct if deal.fee_pct is not None else 1.0
+    minimum = deal.fee_minimum or 0
+    calculated = int(winning_price * pct / 100)
+    return max(calculated, minimum)
+
+
+@router.post("/deals/{deal_id}/mark-pa-signed")
+async def mark_pa_signed(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """LOTPLOT 19F — admin déclare que la PA a été signée hors plateforme.
+
+    Transition : due_diligence | awaiting_pa → pa_signed → awaiting_payment.
+    Envoie au gagnant les instructions Interac (montant, destinataire, référence).
+    """
+    deal, bid, acheteur = await _load_winner(deal_id, db)
+    if deal.status not in (DealStatus.due_diligence, DealStatus.awaiting_pa, DealStatus.pa_signed):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transition impossible depuis le statut '{deal.status}'",
+        )
+
+    now = datetime.now(timezone.utc)
+    if deal.pa_signed_at is None:
+        deal.pa_signed_at = now
+    deal.status = DealStatus.awaiting_payment
+
+    # Génère le PDF watermarqué pour le gagnant si disponible (héritage flow)
+    if deal.full_report_path and not bid.watermarked_path:
+        try:
+            bid.watermarked_path = apply_watermark(
+                deal.full_report_path, acheteur.id, acheteur.full_name, acheteur.email,
+            )
+        except Exception:
+            pass  # ne bloque pas la transition si le watermark échoue
+
+    await db.flush()
+
+    fee = _winning_fee(deal, deal.winning_price or bid.amount)
+    try:
+        await email_service.send_interac_instructions(
+            db, acheteur, deal_id, fee, deal.winning_price or bid.amount,
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": deal.status.value,
+        "winning_price": deal.winning_price,
+        "fee": fee,
+        "interac_email": settings.interac_email,
+    }
+
+
+@router.post("/deals/{deal_id}/mark-paid")
+async def mark_paid(
+    deal_id: uuid.UUID,
+    payload: MarkPaidRequest | None = None,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """LOTPLOT 19F — admin confirme la réception du virement Interac.
+
+    Transition : awaiting_payment → paid. Trace la référence Interac sur le
+    bid gagnant pour audit, et notifie l'acheteur que le deal est finalisé.
+    """
+    deal, bid, acheteur = await _load_winner(deal_id, db)
+    if deal.status not in (DealStatus.awaiting_payment, DealStatus.pa_signed):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transition impossible depuis le statut '{deal.status}'",
+        )
+
+    now = datetime.now(timezone.utc)
+    deal.paid_at = now
+    deal.status = DealStatus.paid
+    bid.payment_status = PaymentStatus.paid
+    if payload and payload.interac_ref:
+        bid.interac_ref = payload.interac_ref
+
+    await db.flush()
+
+    fee = _winning_fee(deal, deal.winning_price or bid.amount)
+    try:
+        await email_service.send_payment_confirmed(db, acheteur, deal_id, fee)
+    except Exception:
+        pass
+
+    return {"status": deal.status.value, "fee": fee}
+
+
+# ── Endpoints legacy (LOTPLOT 19 : neutralisés mais conservés pour compat) ──
+# Le frontend admin les remplace par mark-pa-signed/mark-paid. Si un client
+# hors gabarit appelle encore ces routes (curl, vieux build), on délègue.
+
 @router.post("/deals/{deal_id}/confirm-deposit")
 async def confirm_deposit(
     deal_id: uuid.UUID,
@@ -643,43 +753,13 @@ async def confirm_deposit(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Confirme le dépôt Interac du gagnant et déclenche l'introduction officielle."""
-    result = await db.execute(
-        select(Bid).where(Bid.id == payload.bid_id, Bid.deal_id == deal_id, Bid.status == BidStatus.winner)
+    """LEGACY (LOTPLOT 19 : dépôt 25 % retiré). Renvoie 410 Gone — utiliser
+    POST /deals/{id}/mark-pa-signed à la place.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint retiré. Utiliser POST /admin/deals/{id}/mark-pa-signed.",
     )
-    bid = result.scalar_one_or_none()
-    if not bid:
-        raise HTTPException(status_code=404, detail="Bid gagnant introuvable")
-
-    bid.interac_ref = payload.interac_ref
-    bid.payment_status = PaymentStatus.deposit_confirmed
-
-    deal_result = await db.execute(select(Deal).where(Deal.id == deal_id))
-    deal = deal_result.scalar_one()
-    deal.status = DealStatus.intro
-
-    # Générer le PDF watermarqué si rapport complet disponible
-    if deal.full_report_path:
-        acheteur_result = await db.execute(select(User).where(User.id == bid.acheteur_id))
-        acheteur = acheteur_result.scalar_one()
-        watermarked = apply_watermark(
-            deal.full_report_path,
-            acheteur.id,
-            acheteur.full_name,
-            acheteur.email,
-        )
-        bid.watermarked_path = watermarked
-
-    await db.flush()
-
-    # Introduction officielle
-    acheteur_result = await db.execute(select(User).where(User.id == bid.acheteur_id))
-    acheteur = acheteur_result.scalar_one()
-    courtier_result = await db.execute(select(User).where(User.id == deal.courtier_id))
-    courtier = courtier_result.scalar_one()
-
-    await email_service.send_depot_confirme(db, acheteur, courtier, deal_id, bid.amount)
-    return {"status": "intro", "message": "Introduction officielle déclenchée"}
 
 
 @router.post("/deals/{deal_id}/confirm-balance")
@@ -689,27 +769,13 @@ async def confirm_balance(
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Confirme le paiement du solde (75%) après la PA signée."""
-    result = await db.execute(
-        select(Bid).where(Bid.id == payload.bid_id, Bid.deal_id == deal_id, Bid.status == BidStatus.winner)
+    """LEGACY (LOTPLOT 19 : solde 75 % retiré). Renvoie 410 Gone — utiliser
+    POST /deals/{id}/mark-paid à la place.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint retiré. Utiliser POST /admin/deals/{id}/mark-paid.",
     )
-    bid = result.scalar_one_or_none()
-    if not bid:
-        raise HTTPException(status_code=404, detail="Bid gagnant introuvable")
-
-    bid.payment_status = PaymentStatus.paid
-
-    deal_result = await db.execute(select(Deal).where(Deal.id == deal_id))
-    deal = deal_result.scalar_one()
-
-    acheteur_result = await db.execute(select(User).where(User.id == bid.acheteur_id))
-    acheteur = acheteur_result.scalar_one()
-    courtier_result = await db.execute(select(User).where(User.id == deal.courtier_id))
-    courtier = courtier_result.scalar_one()
-
-    await email_service.send_pa_signee(db, acheteur, courtier, deal_id)
-    await db.flush()
-    return {"status": "paid", "message": "Deal archivé avec succès"}
 
 
 # ── Stripe : paiements ────────────────────────────────────────────────────────
@@ -776,7 +842,7 @@ async def admin_charge_deposit(
                 hours=settings.due_diligence_hours,
             )
         if deal.status == DealStatus.bid:
-            deal.status = DealStatus.intro
+            deal.status = DealStatus.due_diligence
         await db.flush()
     return payment
 
@@ -868,7 +934,7 @@ async def dashboard_metrics(
     intro_res = await db.execute(
         select(Deal, Bid)
         .join(Bid, and_(Bid.deal_id == Deal.id, Bid.status == BidStatus.winner))
-        .where(Deal.status == DealStatus.intro)
+        .where(Deal.status == DealStatus.due_diligence)
     )
     for d, bid in intro_res.all():
         # Vérifier qu'il y a un deposit succeeded
@@ -900,7 +966,7 @@ async def dashboard_metrics(
         .join(Bid, and_(Bid.deal_id == Deal.id, Bid.status == BidStatus.winner))
         .join(User, User.id == Bid.acheteur_id)
         .where(
-            Deal.status == DealStatus.intro,
+            Deal.status == DealStatus.due_diligence,
             Deal.due_diligence_deadline.isnot(None),
             Deal.due_diligence_deadline > now,
             Deal.due_diligence_completed_at.is_(None),
@@ -1209,7 +1275,7 @@ async def admin_revenues(
     intro_res = await db.execute(
         select(Deal, Bid)
         .join(Bid, and_(Bid.deal_id == Deal.id, Bid.status == BidStatus.winner))
-        .where(Deal.status == DealStatus.intro)
+        .where(Deal.status == DealStatus.due_diligence)
     )
     for d, bid in intro_res.all():
         dep_ok = await db.execute(

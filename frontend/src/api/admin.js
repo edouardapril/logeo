@@ -20,10 +20,8 @@ export const deleteDealApi = (dealId) =>
 
 // Bids
 export const adminListBidsApi = (dealId) => client.get(`/admin/deals/${dealId}/bids`).then(r => r.data)
-export const confirmDepositApi = (dealId, data) =>
-  client.post(`/admin/deals/${dealId}/confirm-deposit`, data).then(r => r.data)
-export const confirmBalanceApi = (dealId, data) =>
-  client.post(`/admin/deals/${dealId}/confirm-balance`, data).then(r => r.data)
+// LOTPLOT 19 : confirm-deposit / confirm-balance retirés (410 Gone côté backend) ;
+// utiliser adminMarkPaSignedApi / adminMarkPaidApi de api/payments.js à la place.
 
 // Dashboard metrics + enriched listing (sprint admin)
 export const adminMetricsApi = () =>

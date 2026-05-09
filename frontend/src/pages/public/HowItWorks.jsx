@@ -11,8 +11,8 @@ const COURTIER_STEPS = [
     body: "L'équipe Logeo vérifie l'éligibilité, valide les documents, fixe les frais et donne le verdict GO ou NO GO." },
   { icon: Trophy, title: '10 jours d\'enchères anonymes',
     body: "Les acheteurs qualifiés signent le NDA, posent des questions, enchérissent en proxy bid. Anti-snipe +10 min." },
-  { icon: CheckCircle2, title: 'Introduction officielle + paiement automatique',
-    body: "Le gagnant paye par Stripe (dépôt 25 % puis solde 75 %). Logeo vous met en contact pour la signature de la PA." },
+  { icon: CheckCircle2, title: 'Introduction officielle + signature de la PA',
+    body: "Le gagnant complète sa due diligence (5 jours), signe la PA hors plateforme, puis règle les frais Logeo (1 % du prix final) par virement Interac." },
 ]
 
 const ACHETEUR_STEPS = [
@@ -23,7 +23,7 @@ const ACHETEUR_STEPS = [
   { icon: Trophy, title: 'Enchérissez anonymement (proxy bid)',
     body: "Vous fixez votre maximum. Le système enchérit pour vous à l'incrément +5 000 $ jusqu'à votre plafond. Aucun nom ni montant n'est public." },
   { icon: Coins, title: 'Gagnez et complétez votre due diligence',
-    body: "Si gagnant, dépôt 25 % débité automatiquement. 5 jours pour confirmer la due diligence puis solde 75 %. Logeo gère le reste." },
+    body: "5 jours pour finaliser votre due diligence (inspection, vérifications) avant de procéder. Frais Logeo (1 % du prix final) payables par Interac à la signature de la PA." },
 ]
 
 const FAQ = [
@@ -40,12 +40,12 @@ const FAQ = [
     a: "Logeo accepte 5 catégories : Terrain, Résidentiel, Petit Plex (2 à 5 logements), Multilogement (6-24 logements), Multilogement (+24 logements). Pas d'unifamilial ni de condo personnel.",
   },
   {
-    q: "Comment sont protégés mes paiements ?",
-    a: "Tous les paiements transitent par Stripe (PCI-DSS niveau 1). Vos numéros de carte ne touchent jamais nos serveurs. Le dépôt 25 % est encaissé à la fermeture de l'enchère ; le solde 75 % seulement après confirmation de votre due diligence.",
+    q: "Comment se règlent les frais Logeo ?",
+    a: "Frais Logeo de 1 % du prix final, payables à la signature de la promesse d'achat (PA) par virement Interac. Aucun débit pendant l'enchère ni à la fermeture — uniquement à la PA, lorsque le deal est ferme.",
   },
   {
     q: "Que se passe-t-il si je me désiste après avoir gagné ?",
-    a: "Le dépôt 25 % (minimum 2 500 $) est conservé par Logeo et le deal est attribué automatiquement au 2ᵉ offrant. Vous recevez aussi une sanction visible sur votre profil public.",
+    a: "Vous avez 5 jours de due diligence pour vous retirer sans pénalité (inspection, vérifications). Au-delà, un retrait expose à une sanction visible sur votre profil public et le deal est offert au prochain enchérisseur.",
   },
   {
     q: "Anti-snipe — c'est quoi ?",

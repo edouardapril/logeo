@@ -22,8 +22,19 @@ export const getFeeQuoteApi = (dealId) =>
 export const getMyDealPaymentsApi = (dealId) =>
   client.get(`/acheteur/deals/${dealId}/payments`).then(r => r.data)
 
+// LOTPLOT 19 : remplacé par dd-confirm (workflow Interac manuel, plus de débit auto Stripe)
 export const completeDueDiligenceApi = (dealId) =>
-  client.post(`/acheteur/deals/${dealId}/due-diligence-complete`).then(r => r.data)
+  client.post(`/acheteur/deals/${dealId}/dd-confirm`).then(r => r.data)
+
+export const ddWithdrawApi = (dealId) =>
+  client.post(`/acheteur/deals/${dealId}/dd-withdraw`).then(r => r.data)
+
+// Workflow admin manuel — PA signée + Interac reçu (LOTPLOT 19F)
+export const adminMarkPaSignedApi = (dealId) =>
+  client.post(`/admin/deals/${dealId}/mark-pa-signed`).then(r => r.data)
+
+export const adminMarkPaidApi = (dealId, interac_ref) =>
+  client.post(`/admin/deals/${dealId}/mark-paid`, interac_ref ? { interac_ref } : null).then(r => r.data)
 
 export const myPaymentHistoryApi = () =>
   client.get('/acheteur/payments/history').then(r => r.data)

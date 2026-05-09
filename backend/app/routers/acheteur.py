@@ -40,10 +40,21 @@ def _require_qualified(user: User):
 
 
 async def _get_active_deal(deal_id: uuid.UUID, db: AsyncSession) -> Deal:
+    """Statuts considérés comme « visibles » côté acheteur — couvre tout le
+    nouveau pipeline post-bid (LOTPLOT 19) : due_diligence, awaiting_pa,
+    awaiting_payment, paid, plus pa_signed legacy.
+    """
     result = await db.execute(
         select(Deal).where(
             Deal.id == deal_id,
-            Deal.status.in_([DealStatus.bid, DealStatus.intro, DealStatus.pa_signed]),
+            Deal.status.in_([
+                DealStatus.bid,
+                DealStatus.due_diligence,
+                DealStatus.awaiting_pa,
+                DealStatus.pa_signed,
+                DealStatus.awaiting_payment,
+                DealStatus.paid,
+            ]),
             Deal.archived_at.is_(None),
         )
     )
@@ -222,8 +233,20 @@ async def get_deal_full(
 
     state = await auction_svc.compute_auction_state(deal, db)
 
+    # Transformation paths → URLs (LOTPLOT 16B / 19A) : sans response_model,
+    # les `field_serializer` du schéma DealFull ne s'appliquent pas. <img> ne
+    # peut pas envoyer de Bearer token vers /storage/sign → on signe ici.
+    from app.services import storage as storage_svc
+    payload = dict(deal.__dict__)
+    payload["photo_paths"] = storage_svc.to_signed_urls(deal.photo_paths)
+    payload["teaser_photo_path"] = storage_svc.to_public_url(deal.teaser_photo_path)
+    payload["teaser_photo_paths"] = storage_svc.to_public_urls(deal.teaser_photo_paths)
+    payload["full_report_path"] = storage_svc.to_signed_url(deal.full_report_path)
+    payload["inspection_report_path"] = storage_svc.to_signed_url(deal.inspection_report_path)
+    payload["documents"] = storage_svc.to_signed_url_values(deal.documents)
+
     return {
-        **deal.__dict__,
+        **payload,
         "courtier_name": courtier.full_name,
         "courtier_email": courtier.email,
         "courtier_phone": courtier.phone,
@@ -696,51 +719,90 @@ async def my_payments_history(
     return enriched
 
 
-@router.post("/deals/{deal_id}/due-diligence-complete")
-async def due_diligence_complete(
-    deal_id: uuid.UUID,
-    current_user: User = Depends(require_acheteur),
-    db: AsyncSession = Depends(get_db),
-):
-    """Acheteur gagnant déclare sa due diligence terminée → débit du solde 75%."""
+async def _load_my_winning_bid(
+    deal_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
+) -> tuple[Deal, Bid]:
+    """Helper : récupère le deal + le bid winner du user courant. 403/404 sinon."""
     deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = deal_res.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-
     bid_res = await db.execute(
         select(Bid).where(
             Bid.deal_id == deal_id,
-            Bid.acheteur_id == current_user.id,
+            Bid.acheteur_id == user_id,
             Bid.status == BidStatus.winner,
         )
     )
     bid = bid_res.scalar_one_or_none()
     if not bid:
         raise HTTPException(status_code=403, detail="Vous n'êtes pas le gagnant de ce deal")
+    return deal, bid
 
-    if bid.payment_status != BidPaymentStatus.deposit_confirmed:
-        raise HTTPException(status_code=400, detail="Dépôt 25% non confirmé")
 
-    if deal.due_diligence_completed_at:
-        raise HTTPException(status_code=400, detail="Due diligence déjà confirmée")
+@router.post("/deals/{deal_id}/dd-confirm")
+async def dd_confirm(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """LOTPLOT 19D — gagnant confirme procéder après sa due diligence.
 
-    # Empêcher un double débit
-    existing = await db.execute(
-        select(Payment).where(
-            Payment.deal_id == deal_id,
-            Payment.bid_id == bid.id,
-            Payment.type == PaymentType.balance,
-            Payment.state.in_([PaymentState.succeeded, PaymentState.pending]),
+    Transition : due_diligence → awaiting_pa. La PA sera signée hors plateforme,
+    puis l'admin cliquera "Marquer PA signée" pour passer à awaiting_payment.
+    Aucun débit à ce stade (les frais Logeo de 1 % sont facturés Interac à la PA).
+    """
+    deal, _bid = await _load_my_winning_bid(deal_id, current_user.id, db)
+    if deal.status != DealStatus.due_diligence:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmation DD impossible depuis le statut '{deal.status}'",
         )
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Solde déjà débité ou en cours")
+    if deal.due_diligence_deadline and deal.due_diligence_deadline < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Le délai de due diligence est expiré.")
+    deal.dd_confirmed_at = datetime.now(timezone.utc)
+    deal.status = DealStatus.awaiting_pa
+    await db.flush()
+    return {"status": deal.status.value}
 
-    deal.due_diligence_completed_at = datetime.now(timezone.utc)
-    bid.payment_status = BidPaymentStatus.balance_sent
-    payment = await payment_service.charge_balance(deal, bid, current_user, db)
-    return PaymentView.model_validate(payment)
+
+@router.post("/deals/{deal_id}/dd-withdraw")
+async def dd_withdraw(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """LOTPLOT 19D — gagnant se retire pendant la fenêtre de due diligence.
+
+    Transition : due_diligence → dd_failed. Le deal devient terminal côté
+    gagnant courant ; admin peut ensuite déclencher un fallback au 2e offrant
+    via les outils existants (hors périmètre de cet endpoint).
+    """
+    deal, _bid = await _load_my_winning_bid(deal_id, current_user.id, db)
+    if deal.status != DealStatus.due_diligence:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Retrait DD impossible depuis le statut '{deal.status}'",
+        )
+    deal.dd_withdrawn_at = datetime.now(timezone.utc)
+    deal.status = DealStatus.dd_failed
+    await db.flush()
+    return {"status": deal.status.value}
+
+
+@router.post("/deals/{deal_id}/due-diligence-complete")
+async def due_diligence_complete_legacy(
+    deal_id: uuid.UUID,
+    current_user: User = Depends(require_acheteur),
+    db: AsyncSession = Depends(get_db),
+):
+    """LEGACY (LOTPLOT 19 : flow Stripe solde 75 % retiré). 410 Gone — utiliser
+    POST /acheteur/deals/{id}/dd-confirm pour confirmer la procédure.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint retiré. Utiliser POST /acheteur/deals/{id}/dd-confirm.",
+    )
 
 
 # ── Logements (vue acheteur après NDA) ───────────────────────────────────────
@@ -919,18 +981,18 @@ async def my_auctions(
         # Catégorie
         if d.status == DealStatus.bid:
             category = 'en_cours'
-        elif d.status == DealStatus.intro and i_won:
+        elif d.status == DealStatus.due_diligence and i_won:
             category = 'dd_en_cours'
         elif d.status == DealStatus.pa_signed and i_won:
             category = 'gagne'
-        elif d.status in (DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+        elif d.status in (DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
             category = 'perdu'
         else:
             category = 'autre'
 
         # Pour la fenêtre DD : urgence
         dd_urgent = False
-        if d.status == DealStatus.intro and i_won and d.due_diligence_deadline:
+        if d.status == DealStatus.due_diligence and i_won and d.due_diligence_deadline:
             now = datetime.now(timezone.utc)
             if (d.due_diligence_deadline - now).total_seconds() < 24 * 3600:
                 dd_urgent = True
@@ -1043,7 +1105,7 @@ async def acheteur_dashboard(
 
             if d.status == DealStatus.pa_signed and i_won:
                 my_status_label = "Adjugé — PA signée"
-            elif d.status == DealStatus.intro and i_won:
+            elif d.status == DealStatus.due_diligence and i_won:
                 my_status_label = "Adjugé — due diligence en cours"
             elif d.status == DealStatus.bid and has_my_bid and i_lead:
                 my_status_label = "Offre la plus haute"
@@ -1051,7 +1113,7 @@ async def acheteur_dashboard(
                 my_status_label = "Offre dépassée"
             elif d.status == DealStatus.bid and not has_my_bid:
                 my_status_label = "NDA signée — pas encore d'offre"
-            elif d.status in (DealStatus.intro, DealStatus.pa_signed, DealStatus.auction_ended):
+            elif d.status in (DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
                 my_status_label = "Enchère terminée"
             else:
                 my_status_label = "—"

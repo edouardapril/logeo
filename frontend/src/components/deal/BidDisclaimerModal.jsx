@@ -20,7 +20,7 @@ const CONSENTS = [
   },
   {
     key: 'consent_fees_and_deposit',
-    label: "Je m'engage à payer les frais Logeo de 1 % de mon offre gagnante. Je comprends que le dépôt de 25 % de ces frais (minimum 2 500 $) sera débité automatiquement sur ma carte si je remporte l'enchère, et est non-remboursable en cas de désistement.",
+    label: "Je m'engage à payer les frais Logeo de 1 % du prix final, payables à la signature de la promesse d'achat (PA) par virement Interac. Aucun débit automatique avant la PA.",
   },
 ]
 
@@ -48,19 +48,17 @@ export default function BidDisclaimerModal({
 
   const numericAmount = parseInt(amount) || 0
   const estimatedFee = Math.round(numericAmount * 0.01)
-  const estimatedDeposit = Math.max(Math.round(estimatedFee * 0.25), 2500)
 
   return (
     <Modal open={open} onClose={onClose} title="Décharge — confirmer mon enchère" size="lg">
       <div className="space-y-4 text-sm text-gray-700">
         <div className="rounded-lg bg-[#FFEDD5] border border-[#FDBA74] p-4">
           <p className="font-semibold text-[#9A3412] mb-1">
-            Montant de votre enchère : {numericAmount ? formatMoney(numericAmount) : '—'}
+            Montant de votre offre maximale : {numericAmount ? formatMoney(numericAmount) : '—'}
           </p>
           <p className="text-xs text-[#9A3412]/80">
-            Si gagnante : frais Logeo estimés <strong>{formatMoney(estimatedFee)}</strong> ·
-            dépôt débité <strong>{formatMoney(estimatedDeposit)}</strong> (min 2 500 $) ·
-            solde à la due diligence.
+            Si gagnante : frais Logeo de <strong>{formatMoney(estimatedFee)}</strong> (1 %)
+            payables à la signature de la PA par virement Interac. Aucun débit avant.
           </p>
         </div>
 
