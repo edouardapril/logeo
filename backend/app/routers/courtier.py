@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.deal import Deal, DealStatus, PropertyType
 from app.models.deal_unit import DealUnit
 from app.models.deal_question import DealQuestion
@@ -14,7 +14,7 @@ from app.schemas.deal import (
 )
 from app.schemas.unit import UnitWrite, UnitView
 from app.schemas.question import QuestionView, QuestionAnswer
-from app.services.auth import require_courtier, block_in_impersonation
+from app.services.auth import require_courtier, require_courtier_or_admin
 from app.services.pdf import save_uploaded_file
 from app.services import storage as storage_svc
 from app.services import watermark as watermark_svc
@@ -272,15 +272,18 @@ async def get_my_deal(
 @router.post("/deals", response_model=DealTeaser, status_code=201)
 async def submit_deal(
     payload: DealSubmit,
-    current_user: User = Depends(require_courtier),
+    current_user: User = Depends(require_courtier_or_admin),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     if not payload.postal_code or not payload.postal_code.strip():
         raise HTTPException(status_code=400, detail="Code postal requis")
 
-    # Convention courtier béton — gate obligatoire
-    if (
+    is_admin_submitter = current_user.role == UserRole.admin
+    # Convention courtier béton — gate obligatoire pour les courtiers ; l'admin
+    # n'est pas un courtier OACIQ donc skipper. Toutes les autres règles
+    # déontologiques (validation des champs, workflow GO/NO GO, _assert_editable
+    # post-bidding, frais Logeo) restent identiques.
+    if not is_admin_submitter and (
         current_user.convention_clauses_version != settings.courtier_convention_required_version
         or not current_user.convention_signed_at
     ):
@@ -542,7 +545,6 @@ async def upload_pa(
     pa_file: UploadFile = File(...),
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     """Upload de la promesse d'achat signée - déclenche la clôture du deal."""
     result = await db.execute(
@@ -790,7 +792,6 @@ async def answer_question(
     payload: QuestionAnswer,
     current_user: User = Depends(require_courtier),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     await _load_owned_deal(deal_id, current_user, db)
     res = await db.execute(

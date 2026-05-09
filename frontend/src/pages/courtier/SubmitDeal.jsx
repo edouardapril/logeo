@@ -15,6 +15,7 @@ import { conventionStatusApi } from '../../api/profile'
 import { PROPERTY_TYPES } from '../../utils/constants'
 import Spinner from '../../components/ui/Spinner'
 import QuebecLocationPicker from '../../components/ui/QuebecLocationPicker'
+import { useAuth } from '../../contexts/AuthContext'
 
 const MAX_PHOTOS = 10
 
@@ -41,10 +42,18 @@ const OCCUPANCY = [
 
 export default function SubmitDeal() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  // Le gate convention concerne uniquement les courtiers OACIQ. L'admin a
+  // nativement les capacités courtier (LOTPLOT 17B) et n'est pas tenu par
+  // la convention OACIQ → on skippe la query.
   const { data: conv, isLoading: loadingConv } = useQuery({
     queryKey: ['convention-status'],
     queryFn: conventionStatusApi,
+    enabled: !isAdmin,
   })
+
+  const baseRoute = isAdmin ? '/admin' : '/courtier'
 
   const [form, setForm] = useState({
     property_type: PROPERTY_TYPES[0].value,
@@ -175,7 +184,7 @@ export default function SubmitDeal() {
     },
     onSuccess: (deal) => {
       toast.success('Deal soumis · En attente d\'analyse')
-      navigate(`/courtier/deals/${deal.id}`)
+      navigate(`${baseRoute}/deals/${deal.id}`)
     },
     onError: (e) => toast.error(e.response?.data?.detail || 'Erreur lors de la soumission'),
   })
@@ -272,15 +281,16 @@ export default function SubmitDeal() {
     </label>
   )
 
-  // Gate convention : tous les hooks sont au-dessus, on peut faire les early-returns ici
-  if (loadingConv) return <Spinner label="Vérification de la convention..." />
-  if (conv?.needs_resign) {
+  // Gate convention : tous les hooks sont au-dessus, on peut faire les early-returns ici.
+  // L'admin n'est pas concerné (pas de signature OACIQ requise).
+  if (!isAdmin && loadingConv) return <Spinner label="Vérification de la convention..." />
+  if (!isAdmin && conv?.needs_resign) {
     return <Navigate to="/courtier/convention" replace state={{ next: '/courtier/submit' }} />
   }
 
   return (
     <div className="max-w-3xl">
-      <Link to="/courtier" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
+      <Link to={baseRoute} className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Retour
       </Link>
 

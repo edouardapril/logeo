@@ -74,6 +74,9 @@ export default function App() {
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/deals" element={<AdminDeals />} />
             <Route path="/admin/deals/:dealId" element={<AdminDealDetail />} />
+            {/* LOTPLOT 17B : admin a nativement les capacités courtier (submit deal).
+                On réutilise le même composant SubmitDeal — il s'adapte au rôle. */}
+            <Route path="/admin/submit-deal" element={<SubmitDeal />} />
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/sanctions" element={<AdminSanctions />} />
             <Route path="/admin/revenus" element={<AdminRevenues />} />

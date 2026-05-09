@@ -22,7 +22,7 @@ from app.schemas.payment import (
     SetupIntentResponse, ConfirmPaymentMethodRequest, PaymentMethodView,
     FeeQuote, PaymentView,
 )
-from app.services.auth import require_acheteur, require_acheteur_or_admin, block_in_impersonation
+from app.services.auth import require_acheteur, require_acheteur_or_admin
 from app.services import email as email_service
 from app.services import payment_service
 from app.services.fee import compute_fees
@@ -126,7 +126,6 @@ async def sign_nda(
     request: Request,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
 
@@ -244,7 +243,6 @@ async def sign_engagement(
     payload: BidEngagementSign,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     """Signature de l'engagement de paiement des frais Logeo - requis avant le 1er bid."""
     _require_qualified(current_user)
@@ -263,7 +261,6 @@ async def place_bid(
     request: Request,
     current_user: User = Depends(require_acheteur_or_admin),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     # L'admin peut bidder en son nom propre — on saute les gates business spécifiques
     # à l'acheteur (qualification, NDA, engagement de paiement, carte enregistrée).
@@ -303,6 +300,18 @@ async def place_bid(
         raise HTTPException(status_code=400, detail="Les enchères ne sont pas ouvertes")
     if deal.bid_close_at and deal.bid_close_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="L'enchère est terminée")
+
+    # ── Conflit d'intérêt (LOTPLOT 17C) ───────────────────────────────────────
+    # L'admin a maintenant le droit de soumettre des deals (LOTPLOT 17B). Règle
+    # déontologique : on ne peut pas bidder sur ses propres deals — ni courtier,
+    # ni admin-soumetteur. La même règle implicite vaut pour un courtier qui
+    # tenterait de bidder via cet endpoint (impossible aujourd'hui via le rôle,
+    # mais on le verrouille par sécurité).
+    if deal.courtier_id == current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Conflit d'intérêt : vous ne pouvez pas bidder sur un deal que vous avez soumis.",
+        )
 
     # ── Validation proxy bid (floor + incrément) ──────────────────────────────
     state_before = await auction_svc.compute_auction_state(deal, db)
@@ -532,7 +541,6 @@ async def stripe_diag(
 async def create_setup_intent(
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     import logging
     import stripe
@@ -592,7 +600,6 @@ async def confirm_payment_method(
     payload: ConfirmPaymentMethodRequest,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     info = await payment_service.save_payment_method(
         current_user, payload.payment_method_id, db
@@ -610,7 +617,6 @@ async def confirm_payment_method(
 async def delete_payment_method(
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     await payment_service.remove_payment_method(current_user, db)
     return PaymentMethodView(has_card=False)
@@ -695,7 +701,6 @@ async def due_diligence_complete(
     deal_id: uuid.UUID,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     """Acheteur gagnant déclare sa due diligence terminée → débit du solde 75%."""
     deal_res = await db.execute(select(Deal).where(Deal.id == deal_id))
@@ -784,7 +789,6 @@ async def create_question(
     payload: QuestionCreate,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
     if not await _has_signed_nda(deal_id, current_user.id, db):
@@ -835,7 +839,6 @@ async def request_visit(
     payload: VisitRequest,
     current_user: User = Depends(require_acheteur),
     db: AsyncSession = Depends(get_db),
-    _: None = Depends(block_in_impersonation),
 ):
     _require_qualified(current_user)
     if not await _has_signed_nda(deal_id, current_user.id, db):

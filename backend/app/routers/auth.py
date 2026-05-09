@@ -1,3 +1,4 @@
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -13,9 +14,10 @@ from app.schemas.user import (
 )
 from app.services.auth import (
     hash_password, verify_password, create_access_token, get_current_user,
-    get_token_payload,
 )
 from app.services import email as email_service
+
+log = logging.getLogger("logeo.auth")
 
 settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,17 +41,34 @@ def _new_email_verify_token() -> tuple[str, datetime]:
     )
 
 
-async def _issue_verification(user: User):
-    """Génère le token, met à jour le user (en mémoire) et envoie l'email."""
+async def _issue_verification(user: User) -> bool:
+    """Génère le token, met à jour le user (en mémoire) et envoie l'email.
+
+    Retourne True si l'email a été accepté par Resend, False sinon.
+    On ne lève PAS d'exception même en cas d'échec — sinon une panne Resend
+    bloque toutes les inscriptions. Mais on log loud (visible Railway logs)
+    et on remonte le booléen au caller pour qu'il puisse l'exposer dans la
+    réponse → le frontend affiche un toast distinct si l'email n'est pas parti.
+    """
     token, exp = _new_email_verify_token()
     user.email_verified = False
     user.email_verify_token = token
     user.email_verify_token_exp = exp
     try:
-        await email_service.send_email_verification(user, token)
-    except Exception:
-        # Ne bloque pas la création du compte si l'email échoue ; admin peut renvoyer
-        pass
+        sent = await email_service.send_email_verification(user, token)
+    except Exception as e:
+        log.error(
+            "[REGISTER] envoi email vérification failed user=%s err=%s",
+            user.email, e, exc_info=True,
+        )
+        sent = False
+    if not sent:
+        log.warning(
+            "[REGISTER] email vérification NON ENVOYÉ user=%s — vérifier "
+            "RESEND_API_KEY + domaine vérifié sur Resend dashboard",
+            user.email,
+        )
+    return sent
 
 
 @router.post("/register/courtier", response_model=UserPublic, status_code=201)
@@ -79,10 +98,10 @@ async def register_courtier(
         agency_name=payload.agency_name,
         **audit,
     )
-    await _issue_verification(user)
+    sent = await _issue_verification(user)
     db.add(user)
     await db.flush()
-    return user
+    return {**UserPublic.model_validate(user).model_dump(), "email_verification_sent": sent}
 
 
 @router.post("/register/acheteur", response_model=UserPublic, status_code=201)
@@ -114,10 +133,10 @@ async def register_acheteur(
         is_qualified=False,
         **audit,
     )
-    await _issue_verification(user)
+    sent = await _issue_verification(user)
     db.add(user)
     await db.flush()
-    return user
+    return {**UserPublic.model_validate(user).model_dump(), "email_verification_sent": sent}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -147,27 +166,10 @@ async def me(current_user: User = Depends(get_current_user)):
 @router.get("/me/session")
 async def me_session(
     current_user: User = Depends(get_current_user),
-    token_payload: dict = Depends(get_token_payload),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Retourne l'utilisateur effectif + état impersonation. Utilisé par le
-    frontend pour rendre le bandeau « Mode visualisation » et le dropdown
-    de sortie. Le client peut continuer à appeler `/me` pour le user simple.
-    """
-    is_imp = bool(token_payload.get("is_impersonating"))
-    real = None
-    if is_imp:
-        real_id = token_payload.get("real_sub")
-        if real_id:
-            r = await db.execute(select(User).where(User.id == uuid.UUID(real_id)))
-            real_user = r.scalar_one_or_none()
-            if real_user:
-                real = {
-                    "id": str(real_user.id),
-                    "email": real_user.email,
-                    "full_name": real_user.full_name,
-                    "role": str(real_user.role),
-                }
+    """Retourne l'utilisateur courant. Format conservé pour compat frontend
+    (champs `is_impersonating` et `real_user` toujours retournés mais figés
+    après retrait de l'impersonation en LOTPLOT 17)."""
     return {
         "user": {
             "id": str(current_user.id),
@@ -175,8 +177,8 @@ async def me_session(
             "full_name": current_user.full_name,
             "role": str(current_user.role),
         },
-        "is_impersonating": is_imp,
-        "real_user": real,
+        "is_impersonating": False,
+        "real_user": None,
     }
 
 
@@ -207,16 +209,22 @@ async def resend_verification(
     email: str = Query(..., min_length=3),
     db: AsyncSession = Depends(get_db),
 ):
-    """Renvoie l'email de confirmation. Réponse 200 même si l'email n'existe pas (anti-énumération)."""
+    """Renvoie l'email de confirmation. Réponse 200 même si l'email n'existe pas (anti-énumération).
+
+    Le booléen `sent` reflète l'état réel côté Resend (logué). Le frontend
+    affiche un toast spécifique si le service email est en panne.
+    """
     res = await db.execute(select(User).where(User.email == email))
     user = res.scalar_one_or_none()
+    sent = False
     if user and not user.email_verified:
         token, exp = _new_email_verify_token()
         user.email_verify_token = token
         user.email_verify_token_exp = exp
         try:
-            await email_service.send_email_verification(user, token)
-        except Exception:
-            pass
+            sent = await email_service.send_email_verification(user, token)
+        except Exception as e:
+            log.error("[RESEND] failed user=%s err=%s", email, e, exc_info=True)
+            sent = False
         await db.flush()
-    return {"sent": True}
+    return {"sent": sent}

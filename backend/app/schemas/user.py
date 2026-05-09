@@ -85,6 +85,10 @@ class UserPublic(BaseModel):
     oaciq_number: str | None = None
     agency_name: str | None = None
     created_at: datetime
+    # Flag retourné uniquement par les endpoints d'inscription pour signaler
+    # au frontend si l'email de confirmation a bien été pris en charge par Resend.
+    # `None` partout ailleurs (présent uniquement après /auth/register/*).
+    email_verification_sent: bool | None = None
 
     model_config = {"from_attributes": True}
 

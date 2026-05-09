@@ -1,3 +1,4 @@
+import logging
 import uuid
 import resend
 from datetime import datetime
@@ -10,6 +11,38 @@ from app.models.email_log import EmailLog, EmailType
 settings = get_settings()
 resend.api_key = settings.resend_api_key
 
+log = logging.getLogger("logeo.email")
+
+# Diagnostic au boot — visible dans Railway logs au démarrage. Aide à
+# identifier en 1 coup d'œil si la config Resend est cassée (cause #1 des
+# emails qui n'arrivent pas en MVP : domaine non vérifié OU API key absente).
+def _log_email_config():
+    api_key_set = bool(settings.resend_api_key)
+    key_preview = (
+        settings.resend_api_key[:6] + "..." if api_key_set else "<MISSING>"
+    )
+    from_email = settings.from_email or "<MISSING>"
+    if not api_key_set:
+        log.error(
+            "[EMAIL CONFIG] RESEND_API_KEY non configurée — aucun email ne "
+            "partira. Set RESEND_API_KEY dans Railway env vars."
+        )
+    elif "example" in (settings.resend_api_key or "").lower() or settings.resend_api_key.startswith("re_xxxx"):
+        log.error(
+            "[EMAIL CONFIG] RESEND_API_KEY ressemble à une valeur exemple "
+            "(%s) — set la vraie clé Resend dans Railway env vars.",
+            key_preview,
+        )
+    else:
+        log.info(
+            "[EMAIL CONFIG] api_key=%s · from=%s · "
+            "(si emails non livrés : vérifier que le domaine de from_email "
+            "est verified sur Resend dashboard)",
+            key_preview, from_email,
+        )
+
+_log_email_config()
+
 
 async def _log_email(
     db: AsyncSession,
@@ -19,43 +52,64 @@ async def _log_email(
     resend_id: str | None = None,
     error: str | None = None,
 ):
-    log = EmailLog(
+    row = EmailLog(
         email_type=email_type,
         recipient_id=recipient_id,
         deal_id=deal_id,
         resend_id=resend_id,
         error=error,
     )
-    db.add(log)
+    db.add(row)
     await db.flush()
 
 
 async def _send(to: str, subject: str, html: str, attachments: list[dict] | None = None) -> str | None:
+    """Envoie un email via Resend. Retourne l'`id` Resend ou `None` en cas d'échec.
+
+    Tous les chemins (succès/échec) sont logués au niveau INFO/ERROR pour
+    qu'un échec de Resend (domaine non vérifié, API key révoquée, rate limit,
+    typo dans l'adresse) soit visible immédiatement dans Railway logs au lieu
+    d'être avalé silencieusement.
+
+    attachments : liste de dicts {filename, content (bytes), content_type?} — Resend 2.x.
     """
-    attachments : liste de dicts {filename, content (bytes), content_type?} — Resend 2.x format.
-    Resend Python SDK accepte content en base64 string OR bytes.
-    """
+    if not settings.resend_api_key:
+        log.error("[EMAIL SEND] SKIP to=%s subject=%r — RESEND_API_KEY non configurée", to, subject)
+        return None
+
+    payload = {
+        "from": f"Logeo <{settings.from_email}>",
+        "to": [to],
+        "subject": subject,
+        "html": html,
+    }
+    if attachments:
+        import base64
+        payload["attachments"] = [
+            {
+                "filename": a["filename"],
+                "content": base64.b64encode(a["content"]).decode("ascii")
+                    if isinstance(a["content"], (bytes, bytearray))
+                    else a["content"],
+            }
+            for a in attachments
+        ]
     try:
-        payload = {
-            "from": f"Logeo <{settings.from_email}>",
-            "to": [to],
-            "subject": subject,
-            "html": html,
-        }
-        if attachments:
-            import base64
-            payload["attachments"] = [
-                {
-                    "filename": a["filename"],
-                    "content": base64.b64encode(a["content"]).decode("ascii")
-                        if isinstance(a["content"], (bytes, bytearray))
-                        else a["content"],
-                }
-                for a in attachments
-            ]
         result = resend.Emails.send(payload)
-        return result.get("id")
+        rid = result.get("id") if isinstance(result, dict) else None
+        if rid:
+            log.info("[EMAIL SEND] OK to=%s subject=%r resend_id=%s", to, subject, rid)
+            return rid
+        # Resend a renvoyé sans `id` → typiquement un message d'erreur dans le body.
+        log.error("[EMAIL SEND] no_id to=%s subject=%r raw=%r", to, subject, result)
+        return None
     except Exception as e:
+        # Cause typique en MVP : "The domain logeo.ca is not verified" (Resend 403)
+        # OU "Invalid API key" (Resend 401). exc_info pour la stack trace complète.
+        log.error(
+            "[EMAIL SEND] FAIL to=%s subject=%r err=%s",
+            to, subject, e, exc_info=True,
+        )
         return None
 
 
@@ -128,8 +182,13 @@ async def send_nda_signee(
     await _send(settings.admin_email, f"[Logeo Admin] NDA signé · #{short}", admin_html)
 
 
-async def send_email_verification(user: User, token: str):
-    """Envoie l'email de confirmation d'inscription (sprint final item 10)."""
+async def send_email_verification(user: User, token: str) -> bool:
+    """Envoie l'email de confirmation d'inscription (sprint final item 10).
+
+    Retourne True si Resend a accepté l'envoi (resend_id reçu), False sinon.
+    Le caller décide de l'action : bloquer la création de compte ou continuer
+    avec un flag dans la réponse pour que le frontend prévienne l'utilisateur.
+    """
     verify_url = f"{settings.frontend_url}/verify-email?token={token}"
     html = f"""
     <h2>Bienvenue sur Logeo</h2>
@@ -151,7 +210,9 @@ async def send_email_verification(user: User, token: str):
       <code>{verify_url}</code>
     </p>
     """
-    await _send(user.email, "Bienvenue sur Logeo — Confirmez votre compte", html)
+    rid = await _send(user.email, "Bienvenue sur Logeo — Confirmez votre compte", html)
+    log.info("[EMAIL VERIFY] sent=%s to=%s user_id=%s", bool(rid), user.email, user.id)
+    return bool(rid)
 
 
 async def send_bid_soumis_admin(db: AsyncSession, deal_id: uuid.UUID, acheteur_name: str, amount: int):

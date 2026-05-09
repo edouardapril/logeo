@@ -3,7 +3,6 @@ import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, delete
 from app.database import get_db
@@ -28,10 +27,7 @@ from app.schemas.admin import (
     SanctionCreate, SanctionLift, SanctionView,
     AcheteurAdminRow, CourtierAdminRow, PendingApprovalRow,
 )
-from app.services.auth import (
-    require_admin, get_token_payload, create_access_token,
-    IMPERSONATION_TTL_MINUTES,
-)
+from app.services.auth import require_admin
 from app.services import email as email_service
 from app.services import payment_service
 from app.services.auction import (
@@ -44,135 +40,7 @@ from app.config import get_settings
 
 settings = get_settings()
 log = logging.getLogger("logeo.admin")
-audit_log = logging.getLogger("logeo.audit")
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-# ── Impersonation ────────────────────────────────────────────────────────────
-
-class ImpersonateRequest(BaseModel):
-    user_id: uuid.UUID
-
-
-class TokenPayload(BaseModel):
-    access_token: str
-    role: str
-    user_id: uuid.UUID
-    is_impersonating: bool
-
-
-@router.post("/impersonate", response_model=TokenPayload)
-async def impersonate_user(
-    payload: ImpersonateRequest,
-    current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Démarre une session « voir en tant que » pour l'admin.
-
-    Émet un nouveau JWT à TTL court (60 min) avec :
-      - sub = user_id cible (l'admin agira comme lui)
-      - role = rôle cible (acheteur / courtier / regional_partner)
-      - real_sub = admin id (audit trail)
-      - real_role = 'admin'
-      - is_impersonating = True
-
-    Pas de cascade : un autre admin ne peut pas être impersonné.
-    """
-    res = await db.execute(select(User).where(User.id == payload.user_id))
-    target = res.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    if not target.is_active:
-        raise HTTPException(status_code=400, detail="Utilisateur désactivé")
-    if target.role == UserRole.admin or target.role == "admin":
-        raise HTTPException(
-            status_code=400,
-            detail="Impersonation d'un autre admin interdite",
-        )
-    if target.id == current_user.id:
-        raise HTTPException(status_code=400, detail="Impossible de s'impersonner soi-même")
-
-    token = create_access_token(
-        user_id=target.id,
-        role=str(target.role),
-        real_user_id=current_user.id,
-        real_role=str(current_user.role),
-    )
-    audit_log.warning(
-        "impersonate_start admin_id=%s admin_email=%s target_id=%s target_email=%s target_role=%s ttl_min=%d",
-        current_user.id, current_user.email, target.id, target.email, target.role,
-        IMPERSONATION_TTL_MINUTES,
-    )
-    return TokenPayload(
-        access_token=token,
-        role=str(target.role),
-        user_id=target.id,
-        is_impersonating=True,
-    )
-
-
-# Note : l'exit n'utilise pas require_admin (le rôle effectif est l'impersonné).
-# La validation se fait sur les claims du token : is_impersonating + real_role==admin.
-@router.post("/impersonate/exit", response_model=TokenPayload)
-async def impersonate_exit(
-    token_payload: dict = Depends(get_token_payload),
-    db: AsyncSession = Depends(get_db),
-):
-    """Restaure le token admin original (sans impersonation)."""
-    if not token_payload.get("is_impersonating"):
-        raise HTTPException(status_code=400, detail="Pas en mode impersonation")
-    real_id = token_payload.get("real_sub")
-    real_role = token_payload.get("real_role")
-    if not real_id or real_role not in (UserRole.admin, "admin"):
-        raise HTTPException(status_code=403, detail="Token impersonation invalide")
-    res = await db.execute(select(User).where(User.id == uuid.UUID(real_id)))
-    real = res.scalar_one_or_none()
-    if not real or not real.is_active or str(real.role) not in ("admin", UserRole.admin):
-        raise HTTPException(status_code=401, detail="Admin original introuvable")
-    token = create_access_token(user_id=real.id, role=str(real.role))
-    audit_log.warning(
-        "impersonate_exit admin_id=%s admin_email=%s previously_impersonated=%s",
-        real.id, real.email, token_payload.get("sub"),
-    )
-    return TokenPayload(
-        access_token=token,
-        role=str(real.role),
-        user_id=real.id,
-        is_impersonating=False,
-    )
-
-
-@router.get("/impersonate/candidates")
-async def impersonate_candidates(
-    q: str | None = None,
-    current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Liste paginée d'utilisateurs impersonnables (acheteur / courtier),
-    filtrée par recherche email/nom optionnelle. Limite à 50 résultats.
-    """
-    query = select(User).where(
-        User.role.in_([UserRole.acheteur, UserRole.courtier]),
-        User.is_active.is_(True),
-    )
-    if q:
-        like = f"%{q.lower()}%"
-        query = query.where(
-            (func.lower(User.email).like(like))
-            | (func.lower(User.full_name).like(like))
-        )
-    query = query.order_by(User.role.asc(), User.full_name.asc()).limit(50)
-    rows = (await db.execute(query)).scalars().all()
-    return [
-        {
-            "id": str(u.id),
-            "email": u.email,
-            "full_name": u.full_name,
-            "role": str(u.role),
-            "agency_name": u.agency_name,
-        }
-        for u in rows
-    ]
 
 
 # ── Gestion des utilisateurs ──────────────────────────────────────────────────

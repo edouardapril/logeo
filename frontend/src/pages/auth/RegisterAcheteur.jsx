@@ -30,9 +30,20 @@ export default function RegisterAcheteur() {
     }
     setLoading(true)
     try {
-      await registerAcheteurApi({ ...form, ...tos })
-      // Item 10 : on ne logge plus directement — l'utilisateur doit confirmer son email
-      toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      const res = await registerAcheteurApi({ ...form, ...tos })
+      // Le backend retourne `email_verification_sent` (LOTPLOT 18). Si false,
+      // l'email n'est pas parti — soit RESEND_API_KEY mal configurée, soit
+      // domaine non vérifié. On le dit clairement à l'utilisateur au lieu
+      // d'un faux succès qui le laisserait attendre un email qui n'arrivera jamais.
+      if (res?.email_verification_sent === false) {
+        toast.error(
+          "Compte créé, mais l'email de confirmation n'a pas pu être envoyé. " +
+          "Contactez le support ou réessayez plus tard.",
+          { duration: 10000 },
+        )
+      } else {
+        toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      }
       navigate('/login', { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Erreur lors de l\'inscription')

@@ -37,9 +37,19 @@ export default function RegisterCourtier() {
     }
     setLoading(true)
     try {
-      await registerCourtierApi({ ...form, ...tos })
-      // Item 10 : confirmation email obligatoire avant login
-      toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      const res = await registerCourtierApi({ ...form, ...tos })
+      // LOTPLOT 18 : si Resend a échoué (domaine non vérifié, API key invalide…),
+      // on le dit clairement plutôt que de laisser l'utilisateur attendre un
+      // email qui n'arrivera jamais.
+      if (res?.email_verification_sent === false) {
+        toast.error(
+          "Compte créé, mais l'email de confirmation n'a pas pu être envoyé. " +
+          "Contactez le support ou réessayez plus tard.",
+          { duration: 10000 },
+        )
+      } else {
+        toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      }
       navigate('/login', { replace: true })
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Erreur lors de l\'inscription')

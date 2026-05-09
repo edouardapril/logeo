@@ -12,6 +12,7 @@ import {
   archiveDealApi, unarchiveDealApi, deleteDealApi,
 } from '../../api/admin'
 import { placeBidApi } from '../../api/acheteur'
+import { useAuth } from '../../contexts/AuthContext'
 import Spinner from '../../components/ui/Spinner'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
@@ -28,6 +29,7 @@ export default function AdminDealDetail() {
   const { dealId } = useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [verdictModal, setVerdictModal] = useState(null) // 'go' | 'nogo' | null
   const [verdictForm, setVerdictForm] = useState({
     fee_pct: 1.5, fee_minimum: 5000, bid_close_at: '', nogo_reason: '',
@@ -139,6 +141,11 @@ export default function AdminDealDetail() {
   const canConfirmBalance = deal.status === 'pa_signed' && winner
   const isAuctionOpen = deal.status === 'bid' && deal.bid_close_at && new Date(deal.bid_close_at) > new Date()
   const auctionState = deal.auction_state || {}
+  // LOTPLOT 17C : l'admin ne peut pas bidder sur ses propres deals (conflit
+  // d'intérêt). Backend rejette aussi avec 403 — la cohérence entre les deux
+  // évite que le bouton soit cliquable juste pour échouer.
+  const isOwnDeal = !!user?.id && deal.courtier_id === user.id
+  const canPlaceBid = isAuctionOpen && !isOwnDeal
 
   const submitVerdict = () => {
     if (verdictModal === 'go') {
@@ -188,7 +195,7 @@ export default function AdminDealDetail() {
               </button>
             </>
           )}
-          {isAuctionOpen && (
+          {canPlaceBid && (
             <button
               onClick={() => setBidModal(true)}
               className="btn-primary text-sm inline-flex items-center gap-1.5"
@@ -252,7 +259,7 @@ export default function AdminDealDetail() {
         deal={deal}
         cta={
           <div className="flex flex-col gap-2 w-full">
-            {isAuctionOpen && (
+            {canPlaceBid && (
               <button
                 onClick={() => setBidModal(true)}
                 className="btn-primary w-full text-base py-3 inline-flex items-center justify-center gap-2"
@@ -260,9 +267,14 @@ export default function AdminDealDetail() {
                 <Hammer className="h-5 w-5" /> Faire une offre
               </button>
             )}
+            {isOwnDeal && isAuctionOpen && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                Conflit d'intérêt : vous ne pouvez pas bidder sur un deal que vous avez soumis.
+              </p>
+            )}
             <a
               href="#bids"
-              className={`${isAuctionOpen ? 'btn-secondary' : 'btn-primary'} w-full text-base py-3 inline-flex items-center justify-center gap-2`}
+              className={`${canPlaceBid ? 'btn-secondary' : 'btn-primary'} w-full text-base py-3 inline-flex items-center justify-center gap-2`}
             >
               <Trophy className="h-5 w-5" /> Voir les enchères ({bids?.length || 0})
             </a>
