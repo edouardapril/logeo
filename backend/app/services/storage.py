@@ -60,6 +60,15 @@ KIND_DEALS = "deals"
 KIND_DOCUMENTS = "documents"
 KIND_PROFILES = "profiles"
 
+# Timeouts httpx — séparation connect/read/write pour gros uploads.
+# WriteTimeout sur upload Supabase de fichiers > 5 MB sur connexion résidentielle :
+# 30 s suffit pour téléverser ~10 Mbps mais coince sur ADSL/4G saturé. 120 s
+# laisse passer ~5 MB à 350 kbps. Le connect reste court pour échouer vite si
+# Supabase est down. Le read côté GET (download) suit la même logique.
+_UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=15.0, pool=10.0)
+_SHORT_TIMEOUT = httpx.Timeout(15.0)  # opérations metadata (sign, delete)
+
 _BUCKET_BY_KIND = {
     KIND_DEALS: lambda: settings.supabase_bucket_deals,
     KIND_DOCUMENTS: lambda: settings.supabase_bucket_documents,
@@ -164,10 +173,11 @@ def save(content: bytes, filename: str, kind: str, subfolder: str = "",
             "x-upsert": "true",
         }
         try:
-            r = httpx.post(url, headers=headers, content=content, timeout=30.0)
+            r = httpx.post(url, headers=headers, content=content, timeout=_UPLOAD_TIMEOUT)
             r.raise_for_status()
         except httpx.HTTPError as e:
-            log.error("Supabase upload failed: bucket=%s key=%s err=%s", bucket, rel_key, e)
+            log.error("Supabase upload failed: bucket=%s key=%s size=%d err=%s",
+                      bucket, rel_key, len(content), e)
             raise
         return f"{bucket}/{rel_key}"
 
@@ -261,7 +271,7 @@ def signed_url(path: str | None, expires_in: int | None = None) -> str | None:
     url = f"{settings.supabase_url}/storage/v1/object/sign/{bucket}/{key}"
     try:
         r = httpx.post(url, headers=_supabase_headers(),
-                       json={"expiresIn": ttl}, timeout=15.0)
+                       json={"expiresIn": ttl}, timeout=_SHORT_TIMEOUT)
         r.raise_for_status()
         data = r.json() if r.content else {}
         signed = (
@@ -299,7 +309,7 @@ def delete(path: str) -> None:
     bucket, key = sb
     url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{key}"
     try:
-        httpx.delete(url, headers=_supabase_headers(), timeout=15.0)
+        httpx.delete(url, headers=_supabase_headers(), timeout=_SHORT_TIMEOUT)
     except httpx.HTTPError as e:
         log.warning("Supabase delete failed: %s", e)
 
@@ -315,7 +325,7 @@ def read(path: str) -> bytes:
         with open(path, "rb") as f:
             return f.read()
     url = signed_url(path, expires_in=60)
-    r = httpx.get(url, timeout=30.0)
+    r = httpx.get(url, timeout=_DOWNLOAD_TIMEOUT)
     r.raise_for_status()
     return r.content
 

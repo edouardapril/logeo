@@ -8,6 +8,14 @@ if (typeof window !== 'undefined') {
   console.info('[logeo/api] baseURL =', baseURL)
 }
 
+// Timeout dédié aux uploads multipart (photos > 5 MB sur connexion résidentielle).
+// 120 s côté axios pour couvrir le 120 s côté Supabase + marge backend.
+export const UPLOAD_TIMEOUT_MS = 120_000
+export const uploadConfig = {
+  headers: { 'Content-Type': 'multipart/form-data' },
+  timeout: UPLOAD_TIMEOUT_MS,
+}
+
 const client = axios.create({
   baseURL,
   headers: { 'Content-Type': 'application/json' },
@@ -48,6 +56,27 @@ client.interceptors.response.use(
       localStorage.removeItem('logeo_user')
       window.location.href = '/login'
     }
+
+    // Timeout client (axios annule la requête après config.timeout ms). Sans ce
+    // détail, les composants affichent "Erreur" générique parce qu'ils lisent
+    // `error.response?.data?.detail`. On greffe un detail explicite pour les
+    // uploads multipart, qui sont la source de presque tous les timeouts vus
+    // (gros fichiers + connexion résidentielle saturée).
+    if (
+      (error.code === 'ECONNABORTED' || error.message?.includes('timeout'))
+      && !error.response
+    ) {
+      const isUpload = error.config?.headers?.['Content-Type']?.includes('multipart')
+      error.response = {
+        status: 408,
+        data: {
+          detail: isUpload
+            ? "Le téléversement a expiré. Essayez avec un fichier plus léger ou une meilleure connexion."
+            : "La requête a expiré. Vérifiez votre connexion et réessayez.",
+        },
+      }
+    }
+
     return Promise.reject(error)
   }
 )

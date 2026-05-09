@@ -1,23 +1,17 @@
-import client from './client'
+import client, { uploadConfig } from './client'
 
 export const courtierListDealsApi = () => client.get('/courtier/deals').then(r => r.data)
 export const courtierGetDealApi = (dealId) => client.get(`/courtier/deals/${dealId}`).then(r => r.data)
 export const submitDealApi = (data) => client.post('/courtier/deals', data).then(r => r.data)
 export const uploadDocumentsApi = (dealId, formData) =>
-  client.post(`/courtier/deals/${dealId}/documents`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  client.post(`/courtier/deals/${dealId}/documents`, formData, uploadConfig).then(r => r.data)
 export const uploadPaApi = (dealId, formData) =>
-  client.post(`/courtier/deals/${dealId}/pa`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  client.post(`/courtier/deals/${dealId}/pa`, formData, uploadConfig).then(r => r.data)
 
 export const uploadDealPhotosApi = (dealId, files) => {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
-  return client.post(`/courtier/deals/${dealId}/photos`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  return client.post(`/courtier/deals/${dealId}/photos`, fd, uploadConfig).then(r => r.data)
 }
 
 export const deleteDealPhotoApi = (dealId, path) =>
@@ -32,9 +26,7 @@ export const patchDealApi = (dealId, payload) =>
 export const uploadInspectionReportApi = (dealId, file) => {
   const fd = new FormData()
   fd.append('file', file)
-  return client.post(`/courtier/deals/${dealId}/inspection-report`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  return client.post(`/courtier/deals/${dealId}/inspection-report`, fd, uploadConfig).then(r => r.data)
 }
 
 // Units (logements)
@@ -49,16 +41,12 @@ export const deleteUnitApi = (dealId, unitId) =>
 export const uploadUnitPhotosApi = (dealId, unitId, files) => {
   const fd = new FormData()
   files.forEach(f => fd.append('files', f))
-  return client.post(`/courtier/deals/${dealId}/units/${unitId}/photos`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  return client.post(`/courtier/deals/${dealId}/units/${unitId}/photos`, fd, uploadConfig).then(r => r.data)
 }
 export const uploadUnitLeaseApi = (dealId, unitId, file) => {
   const fd = new FormData()
   fd.append('file', file)
-  return client.post(`/courtier/deals/${dealId}/units/${unitId}/lease`, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }).then(r => r.data)
+  return client.post(`/courtier/deals/${dealId}/units/${unitId}/lease`, fd, uploadConfig).then(r => r.data)
 }
 
 // FAQ courtier

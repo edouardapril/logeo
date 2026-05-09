@@ -1,4 +1,4 @@
-import client from './client'
+import client, { uploadConfig } from './client'
 
 export const getMeApi = () => client.get('/me').then(r => r.data)
 
@@ -14,9 +14,7 @@ export const updateNotificationsApi = (email_notifications) =>
 export const uploadProfilePhotoApi = (file) => {
   const fd = new FormData()
   fd.append('file', file)
-  return client
-    .post('/me/photo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-    .then(r => r.data)
+  return client.post('/me/photo', fd, uploadConfig).then(r => r.data)
 }
 
 export const deleteProfilePhotoApi = () =>
