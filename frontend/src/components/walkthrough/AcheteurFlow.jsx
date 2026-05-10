@@ -376,9 +376,15 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
               Sur la vraie plateforme, c'est exactement comme ça que ça se passe.
               Inscrivez-vous pour accéder à de vrais deals off-market au Québec.
             </p>
-            <Link to="/register/acheteur" className="btn-primary">
-              M'inscrire comme acheteur <ArrowRight className="h-4 w-4" />
-            </Link>
+            {/* LOTPLOT 23B fix #3 : 2 CTAs côte à côte (empilés sur mobile) */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+              <Link to="/register/acheteur" className="btn-primary w-full sm:w-auto">
+                M'inscrire comme acheteur <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link to="/" className="btn-secondary w-full sm:w-auto">
+                Retour à l'accueil
+              </Link>
+            </div>
           </div>
         )}
       </div>

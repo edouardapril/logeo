@@ -9,7 +9,11 @@ export default function ProgressTracker({ steps, currentIndex }) {
   const pct = Math.round(((currentIndex + 1) / total) * 100)
 
   return (
-    <div className="bg-white border-b border-gray-200">
+    // LOTPLOT 23B fix #1 : sticky sous le bandeau MODE EXEMPLE (sticky top-0 z-40,
+    // hauteur ~38px). z-index 35 → reste au-dessus du dim/spotlight (z-30) mais
+    // sous la tooltip (z-50). bg-white opaque pour masquer le contenu qui passe
+    // dessous au scroll.
+    <div className="bg-white border-b border-gray-200 sticky top-[38px] z-[35]">
       {/* Mobile */}
       <div className="md:hidden px-4 py-2.5">
         <div className="flex items-center justify-between text-xs mb-1.5">
