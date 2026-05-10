@@ -5,6 +5,7 @@ import { ShieldCheck } from 'lucide-react'
 import Input from '../../components/ui/Input'
 import Logo from '../../components/ui/Logo'
 import TermsConsent, { allTermsAccepted } from '../../components/auth/TermsConsent'
+import { registerCourtierApi, loginApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatPhoneCA, isValidCAPhone } from '../../utils/phone'
 
@@ -19,7 +20,7 @@ export default function RegisterCourtier() {
   })
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const { signUp } = useAuth()
+  const { login } = useAuth()
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const tosOk = allTermsAccepted('courtier', tos)
@@ -36,20 +37,22 @@ export default function RegisterCourtier() {
     }
     setLoading(true)
     try {
-      // LOTPLOT 28 — signup via supabase-js. Les champs métier (incl. OACIQ
-      // number + agency) passent en user_metadata → trigger handle_new_user
-      // les copie dans public.profiles.
-      await signUp(form.email, form.password, {
-        full_name: form.full_name,
-        phone: form.phone,
-        role: 'courtier',
-        oaciq_number: form.oaciq_number,
-        agency_name: form.agency_name,
-      })
-      toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      const res = await registerCourtierApi({ ...form, ...tos })
+      // LOTPLOT 18 : si Resend a échoué (domaine non vérifié, API key invalide…),
+      // on le dit clairement plutôt que de laisser l'utilisateur attendre un
+      // email qui n'arrivera jamais.
+      if (res?.email_verification_sent === false) {
+        toast.error(
+          "Compte créé, mais l'email de confirmation n'a pas pu être envoyé. " +
+          "Contactez le support ou réessayez plus tard.",
+          { duration: 10000 },
+        )
+      } else {
+        toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
+      }
       navigate('/login', { replace: true })
     } catch (err) {
-      toast.error(err?.message || err?.response?.data?.detail || 'Erreur lors de l\'inscription')
+      toast.error(err.response?.data?.detail || 'Erreur lors de l\'inscription')
     } finally {
       setLoading(false)
     }

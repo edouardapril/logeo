@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { supabase } from '../lib/supabase'
 
 const baseURL = `${import.meta.env.VITE_API_URL || ''}/api/v1`
 
@@ -25,21 +24,9 @@ const client = axios.create({
   timeout: 15000,
 })
 
-// LOTPLOT 28 — l'access_token vient de la session Supabase (auto-refresh
-// géré par supabase-js). Fallback sur l'ancien `logeo_token` pendant la
-// période de transition (à supprimer une fois la migration terminée).
-client.interceptors.request.use(async (config) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`
-      return config
-    }
-  } catch {
-    // supabase-js pas initialisé / hors connexion → fallback
-  }
-  const legacy = localStorage.getItem('logeo_token')
-  if (legacy) config.headers.Authorization = `Bearer ${legacy}`
+client.interceptors.request.use((config) => {
+  const token = localStorage.getItem('logeo_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -67,14 +54,9 @@ client.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
-      // LOTPLOT 28 — sign out propre via supabase (clear session + storage)
-      try { await supabase.auth.signOut() } catch {}
-      // legacy cleanup (transition)
       localStorage.removeItem('logeo_token')
       localStorage.removeItem('logeo_user')
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login'
-      }
+      window.location.href = '/login'
     }
 
     // Timeout client (axios annule la requête après config.timeout ms). Sans ce
