@@ -31,6 +31,7 @@ class RegionalPartnerProfile(Base):
     )
     contract_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     contract_terminated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    termination_reason: Mapped[str | None] = mapped_column(Text)  # LOTPLOT 20F
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

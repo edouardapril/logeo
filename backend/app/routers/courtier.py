@@ -377,7 +377,8 @@ async def upload_photos(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    _assert_editable(deal)
+    # LOTPLOT 20C : photos restent ajoutables après l'approbation admin
+    _assert_photos_editable(deal)
 
     existing = list(deal.photo_paths or [])
     if len(existing) + len(files) > MAX_PHOTOS:
@@ -432,7 +433,8 @@ async def set_teaser_selection(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    _assert_editable(deal)
+    # LOTPLOT 20C : la sélection teaser reste modifiable post-approbation
+    _assert_photos_editable(deal)
 
     photo_paths = list(deal.photo_paths or [])
     if not photo_paths:
@@ -506,7 +508,8 @@ async def delete_photo(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal introuvable")
-    _assert_editable(deal)
+    # LOTPLOT 20C : suppression photo autorisée tant que le deal n'est pas refusé
+    _assert_photos_editable(deal)
 
     photos = list(deal.photo_paths or [])
     if path not in photos:
@@ -593,8 +596,10 @@ async def _load_owned_deal(deal_id: uuid.UUID, user: User, db: AsyncSession) -> 
     return deal
 
 
-# Statuts pendant lesquels le courtier peut encore éditer la fiche / documentation.
-# Toute autre valeur (bid, intro, pa_signed, auction_ended, nogo) → fiche verrouillée.
+# Statuts pendant lesquels le courtier peut encore éditer **tous** les champs
+# de la fiche (adresse, prix, baux, documents, etc.). Avant approbation admin.
+# Toute autre valeur (bid, due_diligence, pa_signed, etc.) → fiche en lecture
+# seule sauf pour les photos (LOTPLOT 20C).
 EDITABLE_DEAL_STATUSES = (DealStatus.draft, DealStatus.analyse)
 
 
@@ -603,10 +608,28 @@ def _is_locked_for_courtier(deal: Deal) -> bool:
 
 
 def _assert_editable(deal: Deal) -> None:
+    """Verrou strict — pour les mutations métier (champs, documents, units,
+    inspection report). Lève 403 dès que le deal a quitté la phase analyse.
+    """
     if _is_locked_for_courtier(deal):
         raise HTTPException(
             status_code=403,
-            detail="Fiche verrouillée — les enchères ont commencé, lecture seule.",
+            detail="Fiche verrouillée — les enchères ont commencé, lecture seule. Seules les photos peuvent être ajoutées ou supprimées.",
+        )
+
+
+def _assert_photos_editable(deal: Deal) -> None:
+    """Verrou souple — pour les endpoints photos (LOTPLOT 20C).
+
+    Règle business : les photos restent ajoutables/supprimables après
+    l'approbation admin (utile pour enrichir une fiche déjà en enchère).
+    Seul un deal `nogo` (refusé en analyse) bloque l'édition photos —
+    plus aucun intérêt à toucher à un dossier qui ne sera jamais publié.
+    """
+    if deal.status == DealStatus.nogo:
+        raise HTTPException(
+            status_code=403,
+            detail="Deal refusé — édition photos désactivée.",
         )
 
 

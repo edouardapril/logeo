@@ -9,6 +9,7 @@ from app.database import engine, Base
 from app.routers import (
     auth, admin, courtier, acheteur, payments, profile,
     storage as storage_router, reviews, public, realtime as realtime_router,
+    partners as partners_router,
 )
 from app.services.auction import start_scheduler, stop_scheduler
 
@@ -61,6 +62,7 @@ app.include_router(profile.router, prefix="/api/v1")
 app.include_router(storage_router.router, prefix="/api/v1")
 app.include_router(reviews.router, prefix="/api/v1")
 app.include_router(public.router, prefix="/api/v1")
+app.include_router(partners_router.router, prefix="/api/v1")
 # WebSockets : pas de préfixe /api/v1, conventionnellement sous /ws/*
 app.include_router(realtime_router.router)
 

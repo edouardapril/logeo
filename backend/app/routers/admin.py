@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, delete
 from app.database import get_db
@@ -48,12 +49,17 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/users", response_model=list[UserAdminView])
 async def list_users(
     role: UserRole | None = None,
+    include_deleted: bool = Query(default=False),
     current_user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(User)
     if role:
         query = query.where(User.role == role)
+    # LOTPLOT 20E : par défaut, masquer les users soft-deleted. Onglet
+    # "Supprimés" côté UI peut passer include_deleted=true pour audit.
+    if not include_deleted:
+        query = query.where(User.deleted_at.is_(None))
     result = await db.execute(query.order_by(User.created_at.desc()))
     return result.scalars().all()
 
@@ -87,6 +93,51 @@ async def toggle_user(
     user.is_active = not user.is_active
     await db.flush()
     return {"is_active": user.is_active}
+
+
+# ── LOTPLOT 20E — soft delete utilisateur ─────────────────────────────────────
+class UserDeleteConfirm(BaseModel):
+    """Saisie de l'email pour confirmer la suppression — défense contre clic accidentel."""
+    email: str
+
+
+@router.delete("/users/{user_id}")
+async def soft_delete_user(
+    user_id: uuid.UUID,
+    payload: UserDeleteConfirm,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete d'un utilisateur (LOTPLOT 20E).
+
+    - Set `deleted_at` + `is_active = False` → user ne peut plus se connecter.
+    - Données associées (deals, bids, NDAs) **conservées** pour audit légal.
+    - Refuse de supprimer un autre admin (garde-fou).
+    - Exige la saisie de l'email exact en confirmation.
+    - Endpoint réutilisable pour le bouton "Supprimer" côté UI admin.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if user.role == UserRole.admin:
+        raise HTTPException(status_code=400, detail="Impossible de supprimer un admin via cet endpoint.")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Impossible de se supprimer soi-même.")
+    if user.deleted_at is not None:
+        raise HTTPException(status_code=400, detail="Utilisateur déjà supprimé.")
+    if (payload.email or "").strip().lower() != (user.email or "").lower():
+        raise HTTPException(status_code=400, detail="L'email saisi ne correspond pas — suppression annulée.")
+
+    user.deleted_at = datetime.now(timezone.utc)
+    user.is_active = False
+    await db.flush()
+
+    log.warning(
+        "user_soft_delete admin_id=%s admin_email=%s target_id=%s target_email=%s",
+        current_user.id, current_user.email, user.id, user.email,
+    )
+    return {"deleted_at": user.deleted_at.isoformat(), "email": user.email}
 
 
 # ── Gestion des deals ─────────────────────────────────────────────────────────
@@ -1042,7 +1093,9 @@ async def list_acheteurs(
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(
-        select(User).where(User.role == UserRole.acheteur).order_by(User.created_at.desc())
+        select(User)
+        .where(User.role == UserRole.acheteur, User.deleted_at.is_(None))
+        .order_by(User.created_at.desc())
     )
     users = list(res.scalars())
     out = []
@@ -1078,7 +1131,9 @@ async def list_courtiers(
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(
-        select(User).where(User.role == UserRole.courtier).order_by(User.created_at.desc())
+        select(User)
+        .where(User.role == UserRole.courtier, User.deleted_at.is_(None))
+        .order_by(User.created_at.desc())
     )
     users = list(res.scalars())
     out = []

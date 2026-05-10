@@ -1158,8 +1158,17 @@ async def acheteur_dashboard(
     discover_query = discover_query.order_by(Deal.bid_open_at.desc().nullslast()).limit(5)
     discover_res = await db.execute(discover_query)
     discover = []
+    # LOTPLOT 20A : on retourne directement l'URL publique Supabase (bucket
+    # `deals` public, watermark) au lieu d'un path brut. Évite la dépendance
+    # à VITE_SUPABASE_URL côté frontend ; <img> peut tirer l'image sans avoir
+    # à passer par /storage/sign (qui demande un Bearer token et fait 401).
+    from app.services import storage as storage_svc
     for d in discover_res.scalars():
         state = await auction_svc.compute_auction_state(d, db)
+        raw_path = (
+            (d.teaser_photo_paths or [None])[0]
+            or d.teaser_photo_path
+        )
         discover.append({
             "deal_id": str(d.id),
             "city": d.city,
@@ -1168,10 +1177,7 @@ async def acheteur_dashboard(
             "floor_price": d.floor_price,
             "displayed_price": state["displayed_price"],
             "bid_close_at": d.bid_close_at.isoformat() if d.bid_close_at else None,
-            "teaser_photo_path": (
-                (d.teaser_photo_paths or [None])[0]
-                or d.teaser_photo_path
-            ),
+            "teaser_photo_path": storage_svc.to_public_url(raw_path),
         })
 
     return {

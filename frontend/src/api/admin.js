@@ -6,6 +6,11 @@ export const qualifyUserApi = (userId, isQualified) =>
   client.patch(`/admin/users/${userId}/qualify`, { is_qualified: isQualified }).then(r => r.data)
 export const toggleUserApi = (userId) => client.patch(`/admin/users/${userId}/activate`).then(r => r.data)
 
+// LOTPLOT 20E — soft delete user. Le backend exige la saisie de l'email
+// du user à supprimer comme confirmation (anti-clic-accidentel).
+export const deleteUserApi = (userId, email) =>
+  client.delete(`/admin/users/${userId}`, { data: { email } }).then(r => r.data)
+
 // Deals
 export const adminListDealsApi = (status) =>
   client.get('/admin/deals', { params: status ? { status } : {} }).then(r => r.data)
@@ -52,6 +57,20 @@ export const createSanctionApi = (payload) =>
   client.post('/admin/sanctions', payload).then(r => r.data)
 export const liftSanctionApi = (sanctionId, lifted_reason) =>
   client.post(`/admin/sanctions/${sanctionId}/lift`, { lifted_reason }).then(r => r.data)
+
+// LOTPLOT 20F — Partenaires régionaux
+export const adminListPartnersApi = () =>
+  client.get('/admin/partners').then(r => r.data)
+export const adminGetPartnerApi = (profileId) =>
+  client.get(`/admin/partners/${profileId}`).then(r => r.data)
+export const adminCreatePartnerApi = (payload) =>
+  client.post('/admin/partners', payload).then(r => r.data)
+export const adminSuspendPartnerApi = (profileId, notes) =>
+  client.post(`/admin/partners/${profileId}/suspend`, notes ? { notes } : null).then(r => r.data)
+export const adminTerminatePartnerApi = (profileId, clause, reason) =>
+  client.post(`/admin/partners/${profileId}/terminate`, { clause, reason }).then(r => r.data)
+export const adminListTerritoriesApi = () =>
+  client.get('/admin/territories').then(r => r.data)
 
 // Revenues (sprint final item 6)
 export const adminRevenuesApi = (months = 12) =>

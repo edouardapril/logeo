@@ -88,7 +88,9 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
+    # LOTPLOT 20E : un user soft-deleted ne peut plus s'authentifier — son
+    # token (encore valide jusqu'à expiration) est rejeté ici.
+    if user is None or not user.is_active or user.deleted_at is not None:
         raise credentials_exception
     return user
 

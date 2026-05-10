@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, LogOut, Plus, Search,
   CreditCard, Receipt, UserCircle, ShieldOff, Trophy, TrendingUp,
-  Menu, X,
+  Menu, X, Network,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Logo from '../ui/Logo'
@@ -17,6 +17,7 @@ const NAV_BY_ROLE = {
     // (LOTPLOT 17B). Sa fiche utilisateur sera attribuée au deal comme courtier_id.
     { to: '/admin/submit-deal', label: 'Soumettre un deal', icon: Plus },
     { to: '/admin/users',       label: 'Utilisateurs',      icon: Users },
+    { to: '/admin/partners',    label: 'Partenaires',       icon: Network },
     { to: '/admin/payments',    label: 'Paiements',         icon: Receipt },
     { to: '/admin/revenus',     label: 'Revenus',           icon: TrendingUp },
     { to: '/admin/sanctions',   label: 'Sanctions',         icon: ShieldOff },

@@ -183,16 +183,29 @@ export default function CourtierDealDetail() {
       {/* Hero unifié — countdown + prix + CTA rôle-aware */}
       <DealHero deal={deal} cta={heroCta} />
 
-      {/* Bandeau read-only si fiche verrouillée (post-démarrage enchères) */}
-      {deal.is_locked && (
+      {/* LOTPLOT 20C : bandeau read-only post-approbation. Photos restent
+          modifiables, le reste est verrouillé. */}
+      {deal.is_locked && deal.status !== 'nogo' && (
         <div className="card p-4 mb-6 bg-gray-100 border-gray-300 flex items-center gap-3">
           <Lock className="h-5 w-5 text-gray-600 flex-shrink-0" />
           <div>
-            <p className="font-semibold text-gray-900 text-sm">Enchères en cours — fiche en lecture seule</p>
+            <p className="font-semibold text-gray-900 text-sm">
+              Deal en {deal.status} — seules les photos peuvent être modifiées
+            </p>
             <p className="text-xs text-gray-700">
-              La fiche n'est plus modifiable depuis le démarrage des enchères. Contactez l'admin si une correction est nécessaire.
+              Adresse, financiers, baux et documents sont verrouillés depuis l'approbation.
+              Tu peux toujours ajouter ou supprimer des photos. Contacte l'admin si une autre
+              correction est nécessaire.
             </p>
           </div>
+        </div>
+      )}
+      {deal.status === 'nogo' && (
+        <div className="card p-4 mb-6 bg-red-50 border-red-200 flex items-center gap-3">
+          <Lock className="h-5 w-5 text-red-600 flex-shrink-0" />
+          <p className="text-sm text-red-900 font-semibold">
+            Deal refusé — édition entièrement désactivée.
+          </p>
         </div>
       )}
 
@@ -234,7 +247,7 @@ export default function CourtierDealDetail() {
             <ImageIcon className="h-4 w-4" />
             Photos & teaser ({(deal.photo_paths || []).length})
           </h2>
-          {!deal.is_locked && (
+          {deal.status !== 'nogo' && (
             <label className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5">
               <Upload className="h-3.5 w-3.5" />
               Ajouter des photos
@@ -293,7 +306,7 @@ export default function CourtierDealDetail() {
                         Sec. {secRank + 1}
                       </span>
                     )}
-                    {!deal.is_locked && (
+                    {deal.status !== 'nogo' && (
                       <>
                         <button
                           type="button"
@@ -337,7 +350,7 @@ export default function CourtierDealDetail() {
               })}
             </div>
 
-            {!deal.is_locked && (
+            {deal.status !== 'nogo' && (
               <div className="flex items-center justify-between gap-3 flex-wrap pt-3 border-t border-gray-100">
                 <p className="text-xs text-gray-500">
                   {coverPath

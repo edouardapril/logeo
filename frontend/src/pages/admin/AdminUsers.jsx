@@ -2,16 +2,16 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  CheckCircle, Power, ShieldOff, ShieldAlert, ShieldCheck, CreditCard, X,
+  CheckCircle, Power, ShieldOff, ShieldAlert, ShieldCheck, CreditCard, X, Trash2,
 } from 'lucide-react'
 import {
   qualifyUserApi, toggleUserApi,
   listAcheteursAdminApi, listCourtiersAdminApi, listPendingApi,
-  rejectPendingApi, createSanctionApi,
+  rejectPendingApi, createSanctionApi, deleteUserApi,
 } from '../../api/admin'
 import Spinner from '../../components/ui/Spinner'
 import Modal from '../../components/ui/Modal'
-import { Textarea, Select } from '../../components/ui/Input'
+import Input, { Textarea, Select } from '../../components/ui/Input'
 import RatingStars from '../../components/ui/RatingStars'
 
 const TABS = [
@@ -47,6 +47,9 @@ export default function AdminUsers() {
   const [tab, setTab] = useState('acheteurs')
   const [sanctionModal, setSanctionModal] = useState(null)  // { user_id, full_name }
   const [sanctionForm, setSanctionForm] = useState({ reason: '', severity: 'suspension' })
+  // LOTPLOT 20E — soft delete user. Le user doit retaper l'email pour confirmer.
+  const [deleteModal, setDeleteModal] = useState(null)  // { user_id, full_name, email }
+  const [deleteEmailConfirm, setDeleteEmailConfirm] = useState('')
 
   const acheteurs = useQuery({
     queryKey: ['admin', 'users', 'acheteurs'],
@@ -89,6 +92,16 @@ export default function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
     },
     onError: () => toast.error('Erreur'),
+  })
+
+  const deleteUser = useMutation({
+    mutationFn: () => deleteUserApi(deleteModal.user_id, deleteEmailConfirm.trim()),
+    onSuccess: () => {
+      toast.success(`${deleteModal.full_name} supprimé(e)`)
+      setDeleteModal(null); setDeleteEmailConfirm('')
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    },
+    onError: (e) => toast.error(e.response?.data?.detail || 'Erreur'),
   })
 
   const sanction = useMutation({
@@ -209,6 +222,13 @@ export default function AdminUsers() {
                         >
                           <Power className="h-4 w-4" />
                         </button>
+                        <button
+                          onClick={() => { setDeleteModal({ user_id: u.id, full_name: u.full_name, email: u.email }); setDeleteEmailConfirm('') }}
+                          title="Supprimer définitivement"
+                          className="text-xs p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -289,6 +309,13 @@ export default function AdminUsers() {
                           className="text-xs p-1.5 rounded-lg text-gray-500 hover:bg-gray-100"
                         >
                           <Power className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => { setDeleteModal({ user_id: u.id, full_name: u.full_name, email: u.email }); setDeleteEmailConfirm('') }}
+                          title="Supprimer définitivement"
+                          className="text-xs p-1.5 rounded-lg text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -402,6 +429,56 @@ export default function AdminUsers() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* LOTPLOT 20E — modale de soft delete avec confirmation par email */}
+      <Modal
+        open={!!deleteModal}
+        onClose={() => { setDeleteModal(null); setDeleteEmailConfirm('') }}
+        title="Supprimer cet utilisateur"
+        size="md"
+      >
+        {deleteModal && (
+          <div className="space-y-4">
+            <div className="card p-4 bg-red-50 border-red-200 flex items-start gap-3">
+              <ShieldAlert className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-900">
+                <p className="font-semibold mb-1">{deleteModal.full_name}</p>
+                <p className="text-xs">
+                  Cette action désactive le compte (le user ne peut plus se connecter)
+                  et le masque des listes publiques. Les données associées (deals,
+                  bids, NDAs) restent en base à titre de preuve légale.
+                </p>
+              </div>
+            </div>
+            <Input
+              label={`Tape l'email de l'utilisateur (${deleteModal.email}) pour confirmer`}
+              value={deleteEmailConfirm}
+              onChange={(e) => setDeleteEmailConfirm(e.target.value)}
+              placeholder={deleteModal.email}
+              autoComplete="off"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => { setDeleteModal(null); setDeleteEmailConfirm('') }}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => deleteUser.mutate()}
+                disabled={
+                  deleteUser.isPending
+                  || deleteEmailConfirm.trim().toLowerCase() !== deleteModal.email.toLowerCase()
+                }
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleteUser.isPending ? 'Suppression…' : 'Supprimer définitivement'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

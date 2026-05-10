@@ -15,6 +15,7 @@ import AdminMarketplace from './pages/admin/AdminMarketplace'
 import AdminPayments from './pages/admin/AdminPayments'
 import AdminSanctions from './pages/admin/AdminSanctions'
 import AdminRevenues from './pages/admin/AdminRevenues'
+import AdminPartners from './pages/admin/AdminPartners'
 
 import CourtierDashboard from './pages/courtier/CourtierDashboard'
 import SubmitDeal from './pages/courtier/SubmitDeal'
@@ -36,6 +37,8 @@ import AcheteurPublic from './pages/public/AcheteurPublic'
 import Marketplace from './pages/public/Marketplace'
 import HowItWorks from './pages/public/HowItWorks'
 import DealPublic from './pages/public/DealPublic'
+import Terms from './pages/public/Terms'
+import Privacy from './pages/public/Privacy'
 import PublicLayout from './components/layout/PublicLayout'
 
 function ProtectedRoute({ roles }) {
@@ -80,6 +83,7 @@ export default function App() {
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="/admin/sanctions" element={<AdminSanctions />} />
             <Route path="/admin/revenus" element={<AdminRevenues />} />
+            <Route path="/admin/partners" element={<AdminPartners />} />
           </Route>
         </Route>
 
@@ -122,6 +126,8 @@ export default function App() {
           <Route path="/acheteur/:id" element={<AcheteurPublic />} />
           <Route path="/comment-ca-marche" element={<HowItWorks />} />
           <Route path="/deals/:id" element={<DealPublic />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

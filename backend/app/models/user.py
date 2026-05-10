@@ -59,6 +59,12 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
+    # LOTPLOT 20E — soft delete admin. Toutes les queries des vues normales
+    # (acheteur/courtier/public) doivent filtrer `deleted_at IS NULL` ;
+    # admin peut voir les utilisateurs supprimés via un onglet dédié.
+    # On garde les bids/NDAs/deals associés en DB pour audit légal.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
     # Recrutement par un partenaire régional (Phase 1 du système partenaires)
     recruited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True,
