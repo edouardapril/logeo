@@ -1,15 +1,39 @@
-import { useState, useEffect } from 'react'
-import { Mail, X, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Mail, X, ChevronRight, ChevronLeft } from 'lucide-react'
 
-// LOTPLOT 23 — Sidebar des emails preview du walkthrough.
-// - Desktop : panneau à droite, 360px de large, fixe
-// - Mobile : bouton flottant en bas-droite qui ouvre une bottom-sheet
-// - Chaque arrivée d'email fait pulse l'icône + badge "+N nouveaux"
+// LOTPLOT 23 → 26 — Sidebar des emails preview du walkthrough.
+//
+// Layouts :
+//   - Desktop ≥ 1024px : panneau à droite (data-walkthrough-sidebar)
+//       * collapsed = false → 360px de large, liste des emails
+//       * collapsed = true  → bande verticale 48px, juste l'icône + badge
+//       Toggle persisté en localStorage. Default basé sur le viewport
+//       (≥1280px = ouvert, sinon réduit). LOTPLOT 26 fix #1 + #2.
+//   - Mobile < 1024px : FAB en bas-droite qui ouvre une bottom-sheet.
+//
+// LOTPLOT 26 fix #3 : prop `autoCollapse` qui force le panneau réduit
+// quand le walkthrough atteint la dernière étape, pour ne pas masquer
+// les CTAs finaux ("Retour à l'accueil", "M'inscrire").
 
-export default function EmailPreviewSidebar({ emails, onMarkRead }) {
+const STORAGE_KEY = 'logeo_walkthrough_email_panel_collapsed'
+
+function getInitialCollapsed() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored !== null) return stored === '1'
+  } catch {}
+  // Pas de préférence stockée → décide selon largeur viewport.
+  // ≥ 1280px : ouvert (place suffisante côté principal).
+  // < 1280px : réduit (le contenu principal a besoin de toute la place).
+  if (typeof window === 'undefined') return false
+  return window.innerWidth < 1280
+}
+
+export default function EmailPreviewSidebar({ emails, onMarkRead, autoCollapse = false }) {
   const [openOnMobile, setOpenOnMobile] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   const [pulse, setPulse] = useState(false)
+  const [collapsed, setCollapsed] = useState(getInitialCollapsed)
 
   // Pulse à chaque nouvel email
   useEffect(() => {
@@ -19,34 +43,89 @@ export default function EmailPreviewSidebar({ emails, onMarkRead }) {
     return () => clearTimeout(t)
   }, [emails.length])
 
+  // Persiste le toggle desktop
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
+    } catch {}
+  }, [collapsed])
+
+  // LOTPLOT 26 fix #3 — auto-collapse quand le flow atteint l'étape finale.
+  // On ne bascule QUE de ouvert→réduit (pas l'inverse) : si l'utilisateur
+  // a ré-ouvert manuellement, on respecte sa décision.
+  const prevAutoCollapseRef = useRef(autoCollapse)
+  useEffect(() => {
+    if (autoCollapse && !prevAutoCollapseRef.current && !collapsed) {
+      setCollapsed(true)
+    }
+    prevAutoCollapseRef.current = autoCollapse
+  }, [autoCollapse, collapsed])
+
   const unread = emails.filter(e => !e.read).length
 
   // ── Desktop ──
+  // L'aside garde toujours `data-walkthrough-sidebar` pour que TutorialOverlay
+  // mesure dynamiquement sa largeur réelle (48 ou 360px) et clamp les tooltips
+  // hors de cette zone (LOTPLOT 25).
   const Desktop = (
-    // LOTPLOT 24 : z-45 pour passer au-dessus du dim TutorialOverlay (z-30)
-    // sans chevaucher la tooltip (z-50). Permet à l'utilisateur de lire
-    // ses emails et cliquer dessus pendant qu'un tooltip est actif.
-    // LOTPLOT 25 : `data-walkthrough-sidebar` permet à TutorialOverlay de
-    // mesurer dynamiquement la zone occupée et d'éviter de placer la tooltip
-    // dessous (sinon le texte est tronqué derrière le panel email).
-    <aside data-walkthrough-sidebar className="hidden lg:flex flex-col fixed right-0 top-0 bottom-0 w-[360px] bg-white border-l border-gray-200 shadow-md z-[45]">
-      <div className="px-5 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <aside
+      data-walkthrough-sidebar
+      className={`hidden lg:flex flex-col fixed right-0 top-0 bottom-0 bg-white border-l border-gray-200 shadow-md z-[45] transition-[width] duration-200 ease-out ${
+        collapsed ? 'w-12' : 'w-[360px]'
+      }`}
+    >
+      {collapsed ? (
+        <button
+          onClick={() => setCollapsed(false)}
+          className="h-full flex flex-col items-center gap-3 py-4 px-1 hover:bg-gray-50 transition-colors"
+          aria-label="Ouvrir le panneau email"
+          title="Ouvrir le panneau email"
+        >
+          <ChevronLeft className="h-4 w-4 text-gray-400" />
           <Mail className={`h-5 w-5 text-[#EA580C] ${pulse ? 'animate-bounce' : ''}`} />
-          <h2 className="font-semibold text-gray-900">Emails reçus</h2>
-        </div>
-        {unread > 0 && (
-          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#EA580C] text-white">
-            {unread} nouveau{unread > 1 ? 'x' : ''}
+          {unread > 0 && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#EA580C] text-white">
+              {unread}
+            </span>
+          )}
+          <span
+            className="text-[10px] uppercase tracking-wider text-gray-500 mt-2"
+            style={{ writingMode: 'vertical-rl' }}
+          >
+            Emails
           </span>
-        )}
-      </div>
-      <EmailList
-        emails={emails}
-        expandedId={expandedId}
-        setExpandedId={setExpandedId}
-        onMarkRead={onMarkRead}
-      />
+        </button>
+      ) : (
+        <>
+          <div className="px-5 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Mail className={`h-5 w-5 text-[#EA580C] flex-shrink-0 ${pulse ? 'animate-bounce' : ''}`} />
+              <h2 className="font-semibold text-gray-900 truncate">Emails reçus</h2>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              {unread > 0 && (
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#EA580C] text-white">
+                  {unread} nouveau{unread > 1 ? 'x' : ''}
+                </span>
+              )}
+              <button
+                onClick={() => setCollapsed(true)}
+                className="p-1 rounded hover:bg-gray-200 text-gray-500"
+                aria-label="Réduire le panneau"
+                title="Réduire le panneau"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <EmailList
+            emails={emails}
+            expandedId={expandedId}
+            setExpandedId={setExpandedId}
+            onMarkRead={onMarkRead}
+          />
+        </>
+      )}
     </aside>
   )
 

@@ -126,11 +126,15 @@ export default function ExempleWalkthrough() {
         </div>
       )}
 
-      {/* Sidebar emails — visible dès qu'un rôle est choisi */}
+      {/* Sidebar emails — visible dès qu'un rôle est choisi.
+          LOTPLOT 26 : `autoCollapse` à la dernière étape pour que les CTAs
+          finaux ("Retour à l'accueil", "M'inscrire") soient pleinement
+          accessibles, même sur viewport étroit. */}
       {state.role && (
         <EmailPreviewSidebar
           emails={state.emails_received}
           onMarkRead={onMarkRead}
+          autoCollapse={state.step_id === 'completed'}
         />
       )}
     </div>
