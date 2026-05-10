@@ -39,6 +39,7 @@ import HowItWorks from './pages/public/HowItWorks'
 import DealPublic from './pages/public/DealPublic'
 import Terms from './pages/public/Terms'
 import Privacy from './pages/public/Privacy'
+import SampleDealPage from './pages/public/SampleDealPage'
 import PublicLayout from './components/layout/PublicLayout'
 
 function ProtectedRoute({ roles }) {
@@ -129,6 +130,11 @@ export default function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
         </Route>
+
+        {/* LOTPLOT 21 — sample deal accessible sans login. Hors PublicLayout
+            pour que le bandeau « MODE EXEMPLE » reste sticky tout en haut,
+            sans le header marketplace au-dessus. */}
+        <Route path="/exemple" element={<SampleDealPage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

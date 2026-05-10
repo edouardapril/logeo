@@ -43,6 +43,8 @@ class DealAdminListItem(BaseModel):
     bids_count: int = 0
     ndas_count: int = 0
     unanswered_questions_count: int = 0
+    # LOTPLOT 21 — flag pour afficher le badge "EXEMPLE" côté admin
+    is_sample: bool = False
 
 
 class ExtendBidCloseRequest(BaseModel):

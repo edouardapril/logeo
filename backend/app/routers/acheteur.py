@@ -84,6 +84,7 @@ async def list_available_deals(
     query = select(Deal).where(
         Deal.status.in_([DealStatus.bid]),
         Deal.archived_at.is_(None),
+        Deal.is_sample.is_(False),  # LOTPLOT 21 : sample exclu de la liste acheteur
     )
     if region:
         query = query.where(Deal.region == region)
@@ -1152,6 +1153,7 @@ async def acheteur_dashboard(
         Deal.archived_at.is_(None),
         Deal.bid_close_at.isnot(None),
         Deal.bid_close_at > datetime.now(timezone.utc),
+        Deal.is_sample.is_(False),  # LOTPLOT 21 : sample exclu
     )
     if nda_deal_ids:
         discover_query = discover_query.where(~Deal.id.in_(nda_deal_ids))

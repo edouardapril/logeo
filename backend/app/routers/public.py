@@ -217,6 +217,7 @@ async def leaderboard(
         .where(
             Deal.status.in_([DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed]),
             Deal.archived_at.is_(None),
+            Deal.is_sample.is_(False),  # LOTPLOT 21 : exclu du leaderboard
         )
         .group_by(Deal.courtier_id)
     ).subquery()
@@ -288,6 +289,7 @@ async def public_marketplace(
         Deal.bid_close_at.isnot(None),
         Deal.bid_close_at > now,
         Deal.archived_at.is_(None),
+        Deal.is_sample.is_(False),  # LOTPLOT 21 : exclu du marketplace
     )
     if region:
         query = query.where(Deal.region == region)
@@ -370,6 +372,76 @@ def _serialize_public_deal(d, state, nda_count):
     }
 
 
+# ── LOTPLOT 21 : sample deal accessible sans login ──────────────────────────
+
+@router.get("/sample-deal")
+async def public_sample_deal(db: AsyncSession = Depends(get_db)):
+    """Retourne le deal flagué `is_sample=true` avec le dossier complet
+    (adresse, photos signed URLs, courtier, financiers, logements, FAQ).
+
+    Pas de Bearer token requis. Utilisé par la page /exemple côté frontend
+    pour permettre aux prospects de visualiser l'expérience sans s'inscrire.
+    Renvoie 404 si aucun sample deal n'est seedé en base.
+    """
+    res = await db.execute(
+        select(Deal).where(
+            Deal.is_sample.is_(True),
+            Deal.archived_at.is_(None),
+        ).limit(1)
+    )
+    deal = res.scalar_one_or_none()
+    if not deal:
+        raise HTTPException(
+            status_code=404,
+            detail="Aucun deal exemple n'est configuré. Contactez l'admin.",
+        )
+
+    courtier_res = await db.execute(select(User).where(User.id == deal.courtier_id))
+    courtier = courtier_res.scalar_one_or_none()
+
+    state = await compute_auction_state(deal, db)
+    nda_res = await db.execute(
+        select(func.count(NDA.id)).where(NDA.deal_id == deal.id)
+    )
+    nda_count = int(nda_res.scalar() or 0)
+
+    # Vue complète post-NDA — adresse + courtier + photos HD + documents.
+    # On n'expose pas les bid maxs individuels (sample = pas de bidders réels
+    # de toute façon), juste le current_price calculé.
+    payload = dict(deal.__dict__)
+    payload.pop("_sa_instance_state", None)
+    payload["id"] = str(deal.id)
+    payload["property_type"] = (
+        deal.property_type.value if hasattr(deal.property_type, "value") else str(deal.property_type)
+    )
+    payload["status"] = (
+        deal.status.value if hasattr(deal.status, "value") else str(deal.status)
+    )
+    payload["photo_paths"] = storage_svc.to_signed_urls(deal.photo_paths)
+    payload["teaser_photo_path"] = storage_svc.to_public_url(deal.teaser_photo_path)
+    payload["teaser_photo_paths"] = storage_svc.to_public_urls(deal.teaser_photo_paths)
+    payload["full_report_path"] = storage_svc.to_signed_url(deal.full_report_path)
+    payload["inspection_report_path"] = storage_svc.to_signed_url(deal.inspection_report_path)
+    payload["documents"] = storage_svc.to_signed_url_values(deal.documents)
+    payload["bid_open_at"] = deal.bid_open_at.isoformat() if deal.bid_open_at else None
+    payload["bid_close_at"] = deal.bid_close_at.isoformat() if deal.bid_close_at else None
+    payload["created_at"] = deal.created_at.isoformat() if deal.created_at else None
+
+    return {
+        **payload,
+        "courtier_name": courtier.full_name if courtier else "Courtier exemple",
+        "courtier_email": courtier.email if courtier else None,
+        "courtier_phone": courtier.phone if courtier else None,
+        "agency_name": courtier.agency_name if courtier else None,
+        "courtier_oaciq_number": courtier.oaciq_number if courtier else None,
+        "displayed_price": state["current_price"],
+        "current_price": state["current_price"],
+        "bidders_count": state["bidders_count"],
+        "ndas_count": nda_count,
+        "is_sample": True,
+    }
+
+
 # ── Page publique d'un deal individuel (sans login) ──────────────────────────
 
 @router.get("/deals/{deal_id}")
@@ -382,6 +454,9 @@ async def public_deal_detail(
     res = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = res.scalar_one_or_none()
     if not deal or deal.archived_at is not None:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    # LOTPLOT 21 : sample deal n'est consultable que via /public/sample-deal
+    if deal.is_sample:
         raise HTTPException(status_code=404, detail="Deal introuvable")
     # Statuts publics : enchère active ou terminée récemment
     if deal.status not in (DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
@@ -405,6 +480,8 @@ async def public_deal_questions(
     res = await db.execute(select(Deal).where(Deal.id == deal_id))
     deal = res.scalar_one_or_none()
     if not deal or deal.archived_at is not None:
+        raise HTTPException(status_code=404, detail="Deal introuvable")
+    if deal.is_sample:
         raise HTTPException(status_code=404, detail="Deal introuvable")
     if deal.status not in (DealStatus.bid, DealStatus.due_diligence, DealStatus.pa_signed, DealStatus.auction_ended):
         raise HTTPException(status_code=404, detail="Deal non disponible publiquement")

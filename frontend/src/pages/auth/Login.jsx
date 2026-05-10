@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Building2, HelpCircle, ArrowRight } from 'lucide-react'
+import { Building2, HelpCircle, ArrowRight, Eye } from 'lucide-react'
 import Input from '../../components/ui/Input'
 import Logo from '../../components/ui/Logo'
 import { loginApi, resendVerificationApi } from '../../api/auth'
@@ -113,10 +113,29 @@ export default function Login() {
                 Comme acheteur
               </Link>
             </div>
+            {/* LOTPLOT 21 — lien secondaire vers le sample deal pour permettre
+                aux prospects de voir l'expérience sans s'inscrire. */}
+            <p className="mt-3 text-xs text-gray-500">
+              Pas sûr ?{' '}
+              <Link to="/exemple" className="font-medium underline decoration-dotted hover:text-[#EA580C]">
+                Voir un exemple de deal
+              </Link>
+              {' '}d'abord.
+            </p>
           </div>
 
           {/* Lien "Comment ça fonctionne ?" — bouton mis en avant */}
-          <div className="mt-8 pt-6 border-t border-gray-200">
+          <div className="mt-8 pt-6 border-t border-gray-200 space-y-2">
+            <Link
+              to="/exemple"
+              className="flex items-center justify-between gap-2 px-4 py-3.5 rounded-lg border border-gray-200 hover:border-[#FDBA74] hover:bg-[#FFF7ED] active:bg-[#FFEDD5] transition-colors group"
+            >
+              <span className="flex items-center gap-2.5 font-semibold text-gray-900">
+                <Eye className="h-5 w-5 text-[#EA580C]" />
+                Voir un exemple de deal
+              </span>
+              <ArrowRight className="h-4 w-4 text-gray-400 group-hover:text-[#EA580C] transition-colors" />
+            </Link>
             <Link
               to="/comment-ca-marche"
               className="flex items-center justify-between gap-2 px-4 py-3.5 rounded-lg border border-gray-200 hover:border-[#FDBA74] hover:bg-[#FFF7ED] active:bg-[#FFEDD5] transition-colors group"

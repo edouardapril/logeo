@@ -17,3 +17,7 @@ export const publicDealApi = (id) =>
 
 export const publicDealQuestionsApi = (id) =>
   client.get(`/public/deals/${id}/questions`).then(r => r.data)
+
+// LOTPLOT 21 — sample deal accessible sans login (404 si pas seedé)
+export const publicSampleDealApi = () =>
+  client.get('/public/sample-deal').then(r => r.data)

@@ -223,6 +223,14 @@ export default function AdminDeals() {
                           <Archive className="h-2.5 w-2.5" /> Archivé
                         </span>
                       )}
+                      {d.is_sample && (
+                        <span
+                          className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#9A3412] text-white"
+                          title="Deal exemple visible sans login (/exemple)"
+                        >
+                          EXEMPLE
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500">
                       {d.city}{d.region && <span className="text-gray-400"> · {regionLabel(d.region)}</span>}

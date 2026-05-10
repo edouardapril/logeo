@@ -234,6 +234,7 @@ async def list_deals_enriched(
             bids_count=bids_count_map.get(d.id, 0),
             ndas_count=ndas_count_map.get(d.id, 0),
             unanswered_questions_count=unanswered_map.get(d.id, 0),
+            is_sample=bool(d.is_sample),  # LOTPLOT 21
         ))
     return out
 

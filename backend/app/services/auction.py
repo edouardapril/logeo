@@ -234,6 +234,10 @@ async def close_auction(deal_id: uuid.UUID, db: AsyncSession):
     deal = result.scalar_one_or_none()
     if not deal or deal.status != DealStatus.bid:
         return
+    # LOTPLOT 21 : un sample deal a un bid_close_at lointain pour le démo,
+    # mais ne doit jamais être effectivement fermé (pas de gagnant, pas d'email).
+    if deal.is_sample:
+        return
 
     # ── Calcul du winning_price AVANT mutation des statuts de bid ────────────
     # Important : on lit l'état proxy (current_price = max(floor, second_max)

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, DateTime, Text, ForeignKey, Enum as SAEnum, JSON
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Enum as SAEnum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
@@ -134,6 +134,12 @@ class Deal(Base):
     # tout en restant restaurable. NULL = visible. Suppression hard via DELETE
     # endpoint séparé.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    # LOTPLOT 21 — sample deal accessible sans login. Exposé via
+    # GET /public/sample-deal, exclu de tous les autres listings publics.
+    is_sample: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False, index=True,
+    )
 
     courtier = relationship("User", back_populates="deals", foreign_keys=[courtier_id])
     bids = relationship("Bid", back_populates="deal", order_by="Bid.amount.desc()")
