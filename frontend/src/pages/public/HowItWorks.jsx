@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import {
   Building2, TrendingUp, ShieldCheck, Trophy, FileText, ArrowRight,
-  CheckCircle2, Lock, Coins, MapPin, Clock,
+  CheckCircle2, Lock, Coins, MapPin, Clock, Eye,
 } from 'lucide-react'
 
 const COURTIER_STEPS = [
@@ -124,6 +124,28 @@ export default function HowItWorks() {
               <p className="text-sm text-gray-700 mt-3 leading-relaxed">{item.a}</p>
             </details>
           ))}
+        </div>
+      </section>
+
+      {/* LOTPLOT 22 — CTA dédié vers le sample deal, juste avant l'inscription.
+          Permet aux prospects de voir l'expérience complète sans créer de compte. */}
+      <section className="card p-6 md:p-8 bg-gradient-to-br from-[#FFEDD5] to-white border-[#FDBA74]">
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="h-12 w-12 rounded-full bg-[#FED7AA] flex items-center justify-center flex-shrink-0">
+            <Eye className="h-6 w-6 text-[#EA580C]" />
+          </div>
+          <div className="flex-1 min-w-[260px]">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
+              Voir Logeo en action
+            </h2>
+            <p className="text-sm text-gray-700 mb-4 max-w-xl">
+              Consultez un deal exemple complet pour comprendre comment fonctionne
+              la plateforme avant de vous inscrire.
+            </p>
+            <Link to="/exemple" className="btn-primary inline-flex items-center gap-1.5">
+              Voir un exemple de deal <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </section>
 
