@@ -23,7 +23,10 @@ export default function EmailPreviewSidebar({ emails, onMarkRead }) {
 
   // ── Desktop ──
   const Desktop = (
-    <aside className="hidden lg:flex flex-col fixed right-0 top-0 bottom-0 w-[360px] bg-white border-l border-gray-200 shadow-md z-30">
+    // LOTPLOT 24 : z-45 pour passer au-dessus du dim TutorialOverlay (z-30)
+    // sans chevaucher la tooltip (z-50). Permet à l'utilisateur de lire
+    // ses emails et cliquer dessus pendant qu'un tooltip est actif.
+    <aside className="hidden lg:flex flex-col fixed right-0 top-0 bottom-0 w-[360px] bg-white border-l border-gray-200 shadow-md z-[45]">
       <div className="px-5 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Mail className={`h-5 w-5 text-[#EA580C] ${pulse ? 'animate-bounce' : ''}`} />
@@ -49,7 +52,7 @@ export default function EmailPreviewSidebar({ emails, onMarkRead }) {
     <>
       <button
         onClick={() => setOpenOnMobile(true)}
-        className={`lg:hidden fixed bottom-4 right-4 z-30 h-12 w-12 rounded-full bg-[#EA580C] text-white shadow-lg flex items-center justify-center ${pulse ? 'animate-bounce' : ''}`}
+        className={`lg:hidden fixed bottom-4 right-4 z-[45] h-12 w-12 rounded-full bg-[#EA580C] text-white shadow-lg flex items-center justify-center ${pulse ? 'animate-bounce' : ''}`}
         aria-label="Ouvrir les emails"
       >
         <Mail className="h-5 w-5" />

@@ -222,43 +222,60 @@ export default function TutorialOverlay({
     return floatingStyle
   })()
 
-  const spotlightStyle = rect
-    ? {
-        position: 'fixed',
-        top: rect.top - 6,
-        left: rect.left - 6,
-        width: rect.width + 12,
-        height: rect.height + 12,
-        borderRadius: 10,
-        boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.55)',
-        pointerEvents: 'none',
-        zIndex: 30, // sous le ProgressTracker (z-40 du bandeau, le tracker n'a pas
-                    // de z explicite mais reste au-dessus du dim parce qu'il est
-                    // sticky avec un background opaque). On garde la tooltip à 50.
-        transition: 'top 200ms ease, left 200ms ease, width 200ms ease, height 200ms ease',
-        animation: 'walkthrough-pulse 1.6s ease-in-out infinite',
-      }
-    : {
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(15, 23, 42, 0.55)',
-        pointerEvents: 'none',
-        zIndex: 30,
-      }
+  // ── LOTPLOT 24 : highlight DIRECT du target (Option B) ──────────────────────
+  // Plus de "spotlight" via box-shadow inversé (cause de désalignement perçu —
+  // le rect de getBoundingClientRect pouvait être stale entre setInterval et
+  // repaint). À la place, on ajoute une classe au VRAI bouton du DOM, qui
+  // gagne :
+  //   - outline 3px solid orange
+  //   - glow box-shadow 6px + pulse 2s
+  //   - position: relative + z-index: 40 (lift au-dessus du dim z-30)
+  //   - pointer-events: auto (reste cliquable)
+  // Pattern standard Intercom/Pendo. Aucun risque d'offset entre highlight et
+  // bouton réel : c'est le même élément.
+  useEffect(() => {
+    if (!targetSelector) return
+    const el = document.querySelector(targetSelector)
+    if (!el) return
+    el.classList.add('walkthrough-highlight')
+    return () => {
+      el.classList.remove('walkthrough-highlight')
+    }
+  }, [targetSelector])
 
   return (
     <>
       <style>{`
-        @keyframes walkthrough-pulse {
-          0%, 100% { box-shadow: 0 0 0 9999px rgba(15,23,42,0.55), 0 0 0 0 rgba(234,88,12,0); }
-          50% { box-shadow: 0 0 0 9999px rgba(15,23,42,0.55), 0 0 0 6px rgba(234,88,12,0.6); }
-        }
         @keyframes walkthrough-tooltip-fade {
           from { opacity: 0; transform: translateY(4px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+        @keyframes walkthrough-button-pulse {
+          0%, 100% { box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.30); }
+          50%      { box-shadow: 0 0 0 8px rgba(234, 88, 12, 0.45); }
+        }
+        .walkthrough-highlight {
+          position: relative !important;
+          z-index: 40 !important;
+          outline: 3px solid #EA580C !important;
+          outline-offset: 2px !important;
+          border-radius: 8px;
+          animation: walkthrough-button-pulse 2s ease-in-out infinite;
+          pointer-events: auto !important;
+        }
       `}</style>
-      <div style={spotlightStyle} aria-hidden="true" />
+      {/* Dim full-screen. pointer-events: auto absorbe les clics partout sauf
+          sur le target (qui est au z-40, donc au-dessus du dim z-30). */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          pointerEvents: 'auto',
+          zIndex: 30,
+        }}
+      />
 
       <div
         key={fadeKey}
