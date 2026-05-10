@@ -117,6 +117,11 @@ function EmailList({ emails, expandedId, setExpandedId, onMarkRead }) {
                 <p className="text-xs text-gray-500 truncate">{email.from}</p>
                 <p className={`text-sm truncate ${email.read ? 'text-gray-700' : 'font-semibold text-gray-900'}`}>
                   {email.subject}
+                  {email.count > 1 && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-bold bg-gray-200 text-gray-700">
+                      ×{email.count}
+                    </span>
+                  )}
                 </p>
                 <p className="text-[10px] text-gray-400 mt-0.5">
                   {new Date(email.at).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })}

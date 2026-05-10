@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import toast from 'react-hot-toast'
 import {
   ShieldCheck, Trophy, MapPin, Building, FileText, Lock,
-  Phone, Mail, CheckCircle2, Receipt, ArrowRight, AlertTriangle, Hourglass,
+  Phone, Mail, CheckCircle2, Receipt, ArrowRight, Hourglass,
 } from 'lucide-react'
 import TutorialOverlay from './TutorialOverlay'
 import { ACHETEUR_EMAILS } from '../../utils/walkthroughEmailTemplates'
+import { wkToast } from '../../utils/walkthroughToast'
 
 // LOTPLOT 23 — Flow Acheteur du walkthrough.
 //
@@ -173,15 +173,30 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
     if (step_id === 'bid_modal') setBidAmount('850000')
   }, [step_id])
 
-  // Auto step "outbid" — quand on arrive sur outbid, on simule le concurrent
+  // LOTPLOT 23C fix #1+#2 — bug critique : avant, deps `[step_id, onPushEmail]`
+  // ré-exécutaient l'effect à chaque render parent (onPushEmail recréé à chaque
+  // setState du state walkthrough). Résultat : cascade de 7+ toasts identiques
+  // et 7+ emails outbid empilés en sidebar.
+  // Correctif : deps = [step_id] uniquement + ref guard pour ne firer qu'une seule
+  // fois par entrée dans le step. Le toast utilise wkToast (dedup + max 2 visible).
+  const outbidFiredRef = useRef(false)
   useEffect(() => {
-    if (step_id !== 'outbid') return
+    if (step_id !== 'outbid') {
+      outbidFiredRef.current = false
+      return
+    }
+    if (outbidFiredRef.current) return
+    outbidFiredRef.current = true
     const t = setTimeout(() => {
-      toast(`⚡ Un autre acheteur a surenchéri — vous êtes en 2ᵉ position.`, { icon: '⚠️' })
+      wkToast(`⚡ Un autre acheteur a surenchéri — vous êtes en 2ᵉ position.`, {
+        icon: '⚠️',
+        dedupKey: 'outbid',
+      })
       onPushEmail(ACHETEUR_EMAILS.outbid)
     }, 600)
     return () => clearTimeout(t)
-  }, [step_id, onPushEmail])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step_id])
 
   // ─ Affichage du dossier (variantes selon le step) ───────────────────────────
   // Avant signature NDA : teaser anonyme. Après : dossier complet.
@@ -256,7 +271,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
                   ranking_position: 1,
                 })
                 onPushEmail(ACHETEUR_EMAILS.bid_placed)
-                toast.success('Offre relevée — vous êtes de nouveau en tête.')
+                wkToast.success('Offre relevée — vous êtes de nouveau en tête.', { dedupKey: 'counter-bid' })
                 goTo('auction_close')
               }}
               className="btn-primary"
@@ -301,7 +316,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
                 id="walkthrough-dd-confirm-btn"
                 onClick={() => {
                   onPushEmail(ACHETEUR_EMAILS.dd_confirmed)
-                  toast.success('Due diligence confirmée — en attente de la PA')
+                  wkToast.success('Due diligence confirmée — en attente de la PA', { dedupKey: 'dd-confirmed' })
                   goNext()
                 }}
                 className="btn-primary"
@@ -310,7 +325,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
               </button>
               <button
                 onClick={() => {
-                  toast('Vous vous êtes retiré — démo terminée. Recommencez pour explorer le flow gagnant.', { icon: '↩️' })
+                  wkToast('Vous vous êtes retiré — démo terminée. Recommencez pour explorer le flow gagnant.', { icon: '↩️', dedupKey: 'dd-withdraw' })
                 }}
                 className="btn-secondary"
               >
@@ -356,7 +371,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
               id="walkthrough-paid-btn"
               onClick={() => {
                 onPushEmail(ACHETEUR_EMAILS.payment_confirmed)
-                toast.success('Paiement reçu — deal finalisé.')
+                wkToast.success('Paiement reçu — deal finalisé.', { dedupKey: 'paid' })
                 goNext()
               }}
               className="btn-primary"
@@ -419,7 +434,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
               onClick={() => {
                 setNdaModalOpen(false)
                 onPushEmail(ACHETEUR_EMAILS.nda_signed)
-                toast.success('NDA signé · accès au dossier complet')
+                wkToast.success('NDA signé · accès au dossier complet', { dedupKey: 'nda-signed' })
                 goTo('access_dossier')
               }}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
@@ -462,7 +477,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
                     ranking_position: 1,
                   })
                   onPushEmail(ACHETEUR_EMAILS.bid_placed)
-                  toast.success(`Offre soumise — vous êtes le meneur (${formatMoney(805000)})`)
+                  wkToast.success(`Offre soumise — vous êtes le meneur (${formatMoney(805000)})`, { dedupKey: 'bid-placed' })
                   goTo('outbid')
                 }}
                 className="btn-primary"
@@ -584,7 +599,10 @@ function FullDossier({ id, state }) {
 
 function DemoModal({ title, children, onClose }) {
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
+    // LOTPLOT 23C fix #4 : classe `walkthrough-modal` détectée par TutorialOverlay
+    // → si la cible du tooltip est dans ce modal, le tooltip bascule en mode
+    // floating bottom-of-screen pour ne pas masquer le contenu du modal.
+    <div className="walkthrough-modal fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900">{title}</h3>

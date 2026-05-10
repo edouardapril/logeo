@@ -80,11 +80,44 @@ export default function TutorialOverlay({
     }
   }, [targetSelector])
 
+  // ── Détecte si le target est dans un modal ouvert (LOTPLOT 23C fix #4) ────
+  // On remonte les ancêtres jusqu'à trouver un élément en `position: fixed`
+  // OU portant la classe `walkthrough-modal`. Si oui → mode floating bottom.
+  const isInModal = (() => {
+    if (!targetSelector) return false
+    const el = document.querySelector(targetSelector)
+    if (!el) return false
+    let p = el.parentElement
+    while (p) {
+      const cs = window.getComputedStyle(p)
+      if (cs.position === 'fixed') return true
+      if (p.classList.contains('walkthrough-modal')) return true
+      p = p.parentElement
+    }
+    return false
+  })()
+
   // ── Position de la tooltip ──────────────────────────────────────────────────
-  // On calcule d'abord la position désirée selon `tooltipPosition`, puis on
-  // applique des contraintes : clamp horizontal, clamp vertical (STICKY_TOP_OFFSET)
-  // et flip auto top↔bottom si pas assez d'espace pour éviter de masquer le target.
   const tooltipStyle = (() => {
+    const tooltipEl = tooltipRef.current
+    const tooltipH = tooltipEl ? tooltipEl.offsetHeight : 140
+    const viewportH = window.innerHeight
+    const viewportW = window.innerWidth
+
+    // ── Mode floating (forcé OU target dans modal) ─────────────────────────
+    // Le tooltip se pose en bas-centre du viewport, comme une notification
+    // persistante. Garantit qu'il ne chevauche jamais le contenu d'un modal.
+    if (tooltipPosition === 'floating' || isInModal) {
+      return {
+        position: 'fixed',
+        bottom: 24,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        maxWidth: TOOLTIP_WIDTH,
+        width: 'min(90vw, 320px)',
+      }
+    }
+
     if (!rect) {
       return {
         position: 'fixed',
@@ -96,56 +129,40 @@ export default function TutorialOverlay({
       }
     }
 
-    const tooltipEl = tooltipRef.current
-    const tooltipH = tooltipEl ? tooltipEl.offsetHeight : 140  // estimation safe
-    const viewportH = window.innerHeight
-    const viewportW = window.innerWidth
-
     let pos = tooltipPosition
 
-    // Flip auto top↔bottom si pas la place. Le target ne doit jamais être
-    // recouvert par sa propre tooltip.
+    // Flip auto top↔bottom si pas la place
     if (pos === 'top' && rect.top - tooltipH - TOOLTIP_MARGIN < STICKY_TOP_OFFSET) {
       pos = 'bottom'
     }
     if (pos === 'bottom' && rect.bottom + TOOLTIP_MARGIN + tooltipH > viewportH - 16) {
-      // Si le top a aussi pas la place, on garde bottom (la moins pire)
-      // mais on clamp en bas du viewport
       if (rect.top - tooltipH - TOOLTIP_MARGIN >= STICKY_TOP_OFFSET) pos = 'top'
     }
 
-    let top, left
-    let transform
+    let top, left, transform = ''
 
     switch (pos) {
       case 'top':
         top = rect.top - TOOLTIP_MARGIN - tooltipH
         left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-        transform = ''
         break
       case 'left':
         top = rect.top + rect.height / 2 - tooltipH / 2
         left = rect.left - TOOLTIP_MARGIN - TOOLTIP_WIDTH
-        transform = ''
         break
       case 'right':
         top = rect.top + rect.height / 2 - tooltipH / 2
         left = rect.right + TOOLTIP_MARGIN
-        transform = ''
         break
       case 'bottom':
       default:
         top = rect.bottom + TOOLTIP_MARGIN
         left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-        transform = ''
         break
     }
 
-    // Clamp horizontal
     const maxLeft = viewportW - TOOLTIP_WIDTH - 12
     left = Math.max(12, Math.min(left, maxLeft))
-
-    // Clamp vertical : pas dans la stack sticky, pas hors écran en bas
     top = Math.max(STICKY_TOP_OFFSET, Math.min(top, viewportH - tooltipH - 12))
 
     return {

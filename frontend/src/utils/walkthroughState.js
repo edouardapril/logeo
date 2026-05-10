@@ -60,6 +60,31 @@ export function initState(role) {
 }
 
 export function pushEmail(state, email) {
+  // LOTPLOT 23C — dedup : si un email du même `type` existe déjà, on
+  // incrémente son compteur + on remonte son horodatage à maintenant
+  // (pour qu'il reste en haut). Sinon on ajoute une nouvelle entrée.
+  const existing = state.emails_received.find(e => e.type === email.type)
+  if (existing) {
+    const next = {
+      ...state,
+      emails_received: state.emails_received.map(e =>
+        e.id === existing.id
+          ? {
+              ...e,
+              count: (e.count || 1) + 1,
+              at: Date.now(),
+              read: false,
+              // Garde le subject/body du nouveau (potentiellement plus à jour)
+              subject: email.subject ?? e.subject,
+              body_html: email.body_html ?? e.body_html,
+              from: email.from ?? e.from,
+            }
+          : e,
+      ),
+    }
+    writeState(next)
+    return next
+  }
   const next = {
     ...state,
     emails_received: [
@@ -68,6 +93,7 @@ export function pushEmail(state, email) {
         id: `email-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         at: Date.now(),
         read: false,
+        count: 1,
         ...email,
       },
     ],

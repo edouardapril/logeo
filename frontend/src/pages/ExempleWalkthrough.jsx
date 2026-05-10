@@ -10,6 +10,7 @@ import {
   readState, initState, clearState, patchState, pushEmail, markEmailRead,
   DEFAULT_WALKTHROUGH_STATE,
 } from '../utils/walkthroughState'
+import { clearWalkthroughToasts } from '../utils/walkthroughToast'
 
 // LOTPLOT 23 — Page orchestrator du walkthrough /exemple.
 // Gère le state machine de haut niveau : sélection de rôle, persistance
@@ -34,6 +35,7 @@ export default function ExempleWalkthrough() {
   const onRestart = () => {
     if (window.confirm('Recommencer la démo ? Votre progression actuelle sera effacée.')) {
       clearState()
+      clearWalkthroughToasts()
       setState({ ...DEFAULT_WALKTHROUGH_STATE })
     }
   }
@@ -41,6 +43,7 @@ export default function ExempleWalkthrough() {
   const onChangeRole = () => {
     if (window.confirm('Changer de rôle ? Votre progression actuelle sera effacée.')) {
       clearState()
+      clearWalkthroughToasts()
       setState({ ...DEFAULT_WALKTHROUGH_STATE })
     }
   }
@@ -48,6 +51,7 @@ export default function ExempleWalkthrough() {
   const onQuit = () => {
     if (window.confirm('Quitter la démo et retourner à l\'accueil ?')) {
       clearState()
+      clearWalkthroughToasts()
       navigate('/')
     }
   }

@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import toast from 'react-hot-toast'
 import {
   FileText, ShieldCheck, Trophy, MapPin, Upload, CheckCircle2,
   ArrowRight, Loader2, Users, Receipt, Hourglass,
 } from 'lucide-react'
 import TutorialOverlay from './TutorialOverlay'
 import { COURTIER_EMAILS } from '../../utils/walkthroughEmailTemplates'
+import { wkToast } from '../../utils/walkthroughToast'
 
 // LOTPLOT 23 — Flow Courtier du walkthrough.
 // Symétrique d'AcheteurFlow : steps + tooltip mapping + mock UI conditionnée
@@ -168,7 +168,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
       if (i >= stages.length) {
         clearInterval(interval)
         onPushEmail(COURTIER_EMAILS.verdict_go)
-        toast.success('Verdict GO — votre deal est publié.')
+        wkToast.success('Verdict GO — votre deal est publié.', { dedupKey: 'verdict-go' })
         setTimeout(() => goTo('teaser_published'), 700)
       }
     }, 1500)
@@ -184,7 +184,8 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
     const interval = setInterval(() => {
       n++
       onPatch({ fake_buyers_signed: n })
-      toast(`Acheteur Anonyme #${n} a signé le NDA`, { duration: 1800, icon: '🔏' })
+      // dedupKey constant → un seul toast "NDA signé" qui se met à jour avec le n
+      wkToast(`Acheteur Anonyme #${n} a signé le NDA`, { icon: '🔏', dedupKey: 'nda-rolling' })
       if (n >= 5) {
         clearInterval(interval)
         onPushEmail(COURTIER_EMAILS.ndas_summary)
@@ -206,7 +207,8 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
         fake_buyers_bidding: i + 1,
         current_price: prices[i],
       })
-      toast(`Mise placée · prix actuel ${formatMoney(prices[i])}`, { duration: 1500, icon: '💰' })
+      // Idem : un seul toast "Mise placée" qui se met à jour avec le prix courant
+      wkToast(`Mise placée · prix actuel ${formatMoney(prices[i])}`, { icon: '💰', dedupKey: 'bid-rolling' })
       i++
       if (i >= prices.length) {
         clearInterval(interval)
@@ -271,7 +273,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
               id="walkthrough-submit-btn"
               onClick={() => {
                 onPushEmail(COURTIER_EMAILS.submission_received)
-                toast.success('Soumission envoyée — en analyse par Logeo')
+                wkToast.success('Soumission envoyée — en analyse par Logeo', { dedupKey: 'submitted' })
                 goTo('analyse')
               }}
               className="btn-primary"
@@ -393,7 +395,7 @@ function StepUI({ state, onPatch, onPushEmail, goNext, goTo }) {
             id="walkthrough-pa-signed-btn"
             onClick={() => {
               onPushEmail(COURTIER_EMAILS.pa_signed)
-              toast.success('PA marquée signée — acheteur notifié pour le paiement')
+              wkToast.success('PA marquée signée — acheteur notifié pour le paiement', { dedupKey: 'pa-signed' })
               goTo('paid')
             }}
             className="btn-primary"
