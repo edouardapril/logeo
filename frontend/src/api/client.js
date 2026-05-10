@@ -45,10 +45,7 @@ client.interceptors.request.use(async (config) => {
 
 client.interceptors.response.use(
   (res) => res,
-  // LOTPLOT 28-FRONT : `async` requis car on `await supabase.auth.signOut()`
-  // dans le handler 401. Axios accepte un error handler async ; il retourne
-  // une Promise<rejection> au lieu d'une rejection synchrone — équivalent.
-  async (error) => {
+  (error) => {
     // Diagnostic riche dans la console — visible au lieu du toast générique
     const url = `${error.config?.baseURL || ''}${error.config?.url || ''}`
     const method = (error.config?.method || 'GET').toUpperCase()
