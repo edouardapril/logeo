@@ -63,6 +63,14 @@ app.include_router(storage_router.router, prefix="/api/v1")
 app.include_router(reviews.router, prefix="/api/v1")
 app.include_router(public.router, prefix="/api/v1")
 app.include_router(partners_router.router, prefix="/api/v1")
+
+# ⚠️  LOTPLOT 28-RUN — route oneshot temporaire pour exécuter la migration
+# users → Supabase Auth depuis HTTP (fallback si Railway CLI indisponible).
+# À RETIRER après exécution (UNSET MIGRATION_ONESHOT_SECRET côté Railway +
+# supprimer ces 2 lignes + supprimer le fichier routers/migration_oneshot.py).
+from app.routers import migration_oneshot
+app.include_router(migration_oneshot.router, prefix="/api/v1")
+
 # WebSockets : pas de préfixe /api/v1, conventionnellement sous /ws/*
 app.include_router(realtime_router.router)
 
