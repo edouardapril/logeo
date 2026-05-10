@@ -8,6 +8,14 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
+    # LOTPLOT 28 — Supabase Auth (HS256). Le JWT secret est obtenu depuis
+    # Supabase Dashboard → Settings → API → JWT Secret. C'est différent de
+    # l'anon key et différent du service role key.
+    supabase_url: str = ""                  # https://<project-ref>.supabase.co
+    supabase_anon_key: str = ""             # anon public key (frontend + lecture serveur)
+    supabase_service_role_key: str = ""     # service role (script migration uniquement)
+    supabase_jwt_secret: str = ""           # SECRET HS256 pour vérifier les JWT côté backend
+
     resend_api_key: str
     from_email: str = "noreply@logeo.ca"
     admin_email: str = "admin@logeo.ca"

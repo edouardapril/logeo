@@ -4,33 +4,41 @@ import toast from 'react-hot-toast'
 import { Building2, HelpCircle, ArrowRight } from 'lucide-react'
 import Input from '../../components/ui/Input'
 import Logo from '../../components/ui/Logo'
-import { loginApi, resendVerificationApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabase'
+import client from '../../api/client'
+
+// LOTPLOT 28 — login désormais via supabase.auth.signInWithPassword (côté
+// AuthContext.signIn). Après auth, on récupère le profile via /auth/me
+// pour connaître le rôle et router vers la bonne dashboard.
 
 export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [needsVerify, setNeedsVerify] = useState(false)
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { signIn } = useAuth()
 
   const onSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     try {
-      const data = await loginApi(form)
-      login(data)
+      await signIn(form.email, form.password)
+      // signIn déclenche onAuthStateChange dans AuthContext, qui fetch
+      // automatiquement le profile. On re-fetch ici pour avoir le role.
+      const r = await client.get('/auth/me')
+      const role = r.data?.role
       toast.success('Connexion réussie')
-      if (data.role === 'admin') navigate('/admin')
-      else if (data.role === 'courtier') navigate('/courtier')
+      if (role === 'admin') navigate('/admin')
+      else if (role === 'courtier') navigate('/courtier')
       else navigate('/acheteur/deals')
     } catch (err) {
-      const detail = err.response?.data?.detail || 'Erreur de connexion'
-      // Item 10 : reconnaît le 403 "Email non confirmé" pour proposer le renvoi
-      if (err.response?.status === 403 && detail.toLowerCase().includes('email')) {
+      const msg = err?.message || err?.response?.data?.detail || 'Erreur de connexion'
+      // Supabase renvoie "Email not confirmed" si non confirmé
+      if (msg.toLowerCase().includes('not confirmed') || msg.toLowerCase().includes('email')) {
         setNeedsVerify(true)
       }
-      toast.error(detail)
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -39,7 +47,8 @@ export default function Login() {
   const onResend = async () => {
     if (!form.email) { toast.error('Saisissez votre email d\'abord'); return }
     try {
-      await resendVerificationApi(form.email)
+      const { error } = await supabase.auth.resend({ type: 'signup', email: form.email })
+      if (error) throw error
       toast.success('Si un compte existe pour cet email, un nouveau lien a été envoyé.')
     } catch {
       toast.error('Erreur lors du renvoi du lien.')

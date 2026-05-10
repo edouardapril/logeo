@@ -5,7 +5,6 @@ import { TrendingUp, Info } from 'lucide-react'
 import Input from '../../components/ui/Input'
 import Logo from '../../components/ui/Logo'
 import TermsConsent, { allTermsAccepted } from '../../components/auth/TermsConsent'
-import { registerAcheteurApi, loginApi } from '../../api/auth'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatPhoneCA, isValidCAPhone } from '../../utils/phone'
 
@@ -17,7 +16,7 @@ export default function RegisterAcheteur() {
   })
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { signUp } = useAuth()
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const tosOk = allTermsAccepted('acheteur', tos)
@@ -30,23 +29,21 @@ export default function RegisterAcheteur() {
     }
     setLoading(true)
     try {
-      const res = await registerAcheteurApi({ ...form, ...tos })
-      // Le backend retourne `email_verification_sent` (LOTPLOT 18). Si false,
-      // l'email n'est pas parti — soit RESEND_API_KEY mal configurée, soit
-      // domaine non vérifié. On le dit clairement à l'utilisateur au lieu
-      // d'un faux succès qui le laisserait attendre un email qui n'arrivera jamais.
-      if (res?.email_verification_sent === false) {
-        toast.error(
-          "Compte créé, mais l'email de confirmation n'a pas pu être envoyé. " +
-          "Contactez le support ou réessayez plus tard.",
-          { duration: 10000 },
-        )
-      } else {
-        toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
-      }
+      // LOTPLOT 28 — signup via supabase-js (depuis AuthContext.signUp).
+      // Les champs métier (full_name, phone, role) passent en user_metadata
+      // → consommés par le trigger handle_new_user pour peupler public.profiles.
+      // L'email de confirmation est envoyé automatiquement par Supabase
+      // (Auth → Email Templates côté dashboard).
+      await signUp(form.email, form.password, {
+        full_name: form.full_name,
+        phone: form.phone,
+        role: 'acheteur',
+      })
+      toast.success('Compte créé. Un email de confirmation vous a été envoyé.', { duration: 6000 })
       navigate('/login', { replace: true })
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Erreur lors de l\'inscription')
+      const msg = err?.message || err?.response?.data?.detail || 'Erreur lors de l\'inscription'
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
