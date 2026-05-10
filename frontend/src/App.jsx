@@ -40,6 +40,7 @@ import DealPublic from './pages/public/DealPublic'
 import Terms from './pages/public/Terms'
 import Privacy from './pages/public/Privacy'
 import SampleDealPage from './pages/public/SampleDealPage'
+import ExempleWalkthrough from './pages/ExempleWalkthrough'
 import PublicLayout from './components/layout/PublicLayout'
 
 function ProtectedRoute({ roles }) {
@@ -131,10 +132,13 @@ export default function App() {
           <Route path="/privacy" element={<Privacy />} />
         </Route>
 
-        {/* LOTPLOT 21 — sample deal accessible sans login. Hors PublicLayout
-            pour que le bandeau « MODE EXEMPLE » reste sticky tout en haut,
-            sans le header marketplace au-dessus. */}
-        <Route path="/exemple" element={<SampleDealPage />} />
+        {/* LOTPLOT 23 — walkthrough guidé remplace l'ancienne SampleDealPage
+            statique. Toujours hors PublicLayout pour que le bandeau MODE
+            EXEMPLE reste sticky tout en haut. La SampleDealPage simple est
+            conservée pour rétrocompatibilité (nul pointe encore dessus —
+            le route ci-dessous l'utilise via /exemple-statique au cas où). */}
+        <Route path="/exemple" element={<ExempleWalkthrough />} />
+        <Route path="/exemple-statique" element={<SampleDealPage />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
