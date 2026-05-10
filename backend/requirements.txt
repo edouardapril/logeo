@@ -2,10 +2,6 @@ fastapi==0.115.5
 uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
-# LOTPLOT 28-DBFIX : driver sync pour Alembic uniquement (le runtime app
-# reste sur asyncpg). psycopg2 accepte les multi-statement op.execute()
-# que asyncpg refuse ("cannot insert multiple commands into a prepared statement").
-psycopg2-binary>=2.9.9
 alembic==1.14.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
