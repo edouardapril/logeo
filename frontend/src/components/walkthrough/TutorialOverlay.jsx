@@ -222,24 +222,56 @@ export default function TutorialOverlay({
     return floatingStyle
   })()
 
-  // ── LOTPLOT 24 : highlight DIRECT du target (Option B) ──────────────────────
+  // ── LOTPLOT 24/24B : highlight DIRECT du target (Option B) ─────────────────
   // Plus de "spotlight" via box-shadow inversé (cause de désalignement perçu —
   // le rect de getBoundingClientRect pouvait être stale entre setInterval et
-  // repaint). À la place, on ajoute une classe au VRAI bouton du DOM, qui
-  // gagne :
-  //   - outline 3px solid orange
-  //   - glow box-shadow 6px + pulse 2s
-  //   - position: relative + z-index: 40 (lift au-dessus du dim z-30)
-  //   - pointer-events: auto (reste cliquable)
-  // Pattern standard Intercom/Pendo. Aucun risque d'offset entre highlight et
-  // bouton réel : c'est le même élément.
+  // repaint). À la place, on ajoute une classe au VRAI bouton du DOM. Pattern
+  // standard Intercom/Pendo.
+  //
+  // LOTPLOT 24B : robustesse contre les re-mounts.
+  // Le flow COURTIER déclenche beaucoup de setInterval (analyse 6 stages,
+  // NDAs counter, bids counter) → React peut décider de remplacer le DOM
+  // node pour la même `key`. Si la classe est posée sur l'ancien node, le
+  // nouveau node (avec même id) n'aurait pas le highlight → l'utilisateur
+  // perçoit "le vrai bouton n'est pas highlighté" + "la copie est ailleurs".
+  //
+  // Solution : poll régulier (1) re-querySelector chaque tick, (2) si l'élément
+  // a changé de référence, déplacer la classe. Le rect interval (500ms) ci-
+  // dessous fait déjà ce travail pour le rect — on greffe le class management
+  // dans le même cycle.
+  const highlightedElRef = useRef(null)
   useEffect(() => {
-    if (!targetSelector) return
-    const el = document.querySelector(targetSelector)
-    if (!el) return
-    el.classList.add('walkthrough-highlight')
+    if (!targetSelector) {
+      if (highlightedElRef.current) {
+        highlightedElRef.current.classList.remove('walkthrough-highlight')
+        highlightedElRef.current = null
+      }
+      return
+    }
+
+    const ensureHighlight = () => {
+      const el = document.querySelector(targetSelector)
+      // Nettoie l'ancien si l'élément a disparu OU changé
+      if (highlightedElRef.current && highlightedElRef.current !== el) {
+        highlightedElRef.current.classList.remove('walkthrough-highlight')
+        highlightedElRef.current = null
+      }
+      // Pose la classe sur le nouveau si pas déjà fait
+      if (el && el !== highlightedElRef.current) {
+        el.classList.add('walkthrough-highlight')
+        highlightedElRef.current = el
+      }
+    }
+
+    ensureHighlight()
+    // Poll 250ms — couvre les re-mounts pendant les animations courtier
+    const interval = setInterval(ensureHighlight, 250)
     return () => {
-      el.classList.remove('walkthrough-highlight')
+      clearInterval(interval)
+      if (highlightedElRef.current) {
+        highlightedElRef.current.classList.remove('walkthrough-highlight')
+        highlightedElRef.current = null
+      }
     }
   }, [targetSelector])
 
