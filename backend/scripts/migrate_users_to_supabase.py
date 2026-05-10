@@ -50,24 +50,16 @@ log = logging.getLogger("migrate_users")
 
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip('/')
-# Accepte les 2 noms — le projet existant utilise SUPABASE_SERVICE_KEY (storage),
-# LOTPLOT 28 a introduit SUPABASE_SERVICE_ROLE_KEY. On essaie les 2 dans l'ordre.
-SUPABASE_SERVICE_ROLE_KEY = (
-    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    or os.environ.get("SUPABASE_SERVICE_KEY")
-    or ""
-)
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 def _assert_env():
-    missing = []
-    if not SUPABASE_URL:
-        missing.append("SUPABASE_URL")
-    if not SUPABASE_SERVICE_ROLE_KEY:
-        missing.append("SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_SERVICE_KEY)")
-    if not DATABASE_URL:
-        missing.append("DATABASE_URL")
+    missing = [k for k, v in {
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_SERVICE_ROLE_KEY": SUPABASE_SERVICE_ROLE_KEY,
+        "DATABASE_URL": DATABASE_URL,
+    }.items() if not v]
     if missing:
         log.error("Variables env manquantes : %s", ', '.join(missing))
         sys.exit(1)
@@ -160,13 +152,7 @@ async def _upsert_profile(db: AsyncSession, user_row: dict):
 async def migrate():
     _assert_env()
 
-    # Railway/Heroku peuvent fournir `postgres://...` (legacy). asyncpg attend
-    # `postgresql+asyncpg://`. Normalise les deux préfixes.
-    async_db_url = DATABASE_URL
-    if async_db_url.startswith("postgres://"):
-        async_db_url = "postgresql+asyncpg://" + async_db_url[len("postgres://"):]
-    elif async_db_url.startswith("postgresql://"):
-        async_db_url = "postgresql+asyncpg://" + async_db_url[len("postgresql://"):]
+    async_db_url = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
     engine = create_async_engine(async_db_url)
     Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
