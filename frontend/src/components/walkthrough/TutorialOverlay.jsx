@@ -119,6 +119,19 @@ export default function TutorialOverlay({
     return false
   })()
 
+  // ── Détection des panels fixes (sidebar email) ─────────────────────────────
+  // LOTPLOT 25 fix #A : on doit exclure la zone du panel email de la viewport
+  // utilisable, sinon le tooltip se place dessous (texte tronqué). Le panel
+  // est repéré par `data-walkthrough-sidebar` et seulement visible en lg+.
+  const sidebarLeft = (() => {
+    const el = document.querySelector('[data-walkthrough-sidebar]')
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    // Ignore si le panel est masqué (display: none sur mobile)
+    if (r.width === 0 || r.height === 0) return null
+    return r.left
+  })()
+
   // ── Position de la tooltip ──────────────────────────────────────────────────
   // LOTPLOT 23D : algorithme robuste à fallback 4 côtés + détection de
   // débordement. On essaie le côté préféré ; s'il déborde du viewport ou
@@ -129,15 +142,21 @@ export default function TutorialOverlay({
     const tooltipH = tooltipEl ? tooltipEl.offsetHeight : 160
     const viewportH = window.innerHeight
     const viewportW = window.innerWidth
-    const W = Math.min(TOOLTIP_WIDTH, viewportW - 2 * VIEWPORT_PADDING)
+    // Limite droite réelle = bord gauche de la sidebar si présente, sinon viewport.
+    const usableRight = sidebarLeft != null ? sidebarLeft : viewportW
+    const usableW = usableRight - VIEWPORT_PADDING
+    const W = Math.min(TOOLTIP_WIDTH, usableW - VIEWPORT_PADDING)
 
+    // Floating : centre dans la zone utilisable (pas sur viewport entier),
+    // pour ne pas chevaucher la sidebar email.
+    const floatingCenter = (VIEWPORT_PADDING + usableRight) / 2
     const floatingStyle = {
       position: 'fixed',
       bottom: 24,
-      left: '50%',
+      left: floatingCenter,
       transform: 'translateX(-50%)',
       maxWidth: TOOLTIP_WIDTH,
-      width: `min(calc(100vw - ${2 * VIEWPORT_PADDING}px), ${TOOLTIP_WIDTH}px)`,
+      width: `min(${usableW}px, ${TOOLTIP_WIDTH}px)`,
     }
 
     // Mode floating forcé
@@ -176,16 +195,16 @@ export default function TutorialOverlay({
           left = rect.right + TOOLTIP_MARGIN
           break
       }
-      // clamp horizontal mais SANS écraser dans la zone du target — on revérifie
-      // juste après avec fitsAndDoesNotOverlap.
-      left = Math.max(VIEWPORT_PADDING, Math.min(left, viewportW - W - VIEWPORT_PADDING))
+      // LOTPLOT 25 : clamp horizontal contre `usableRight` (bord gauche
+      // de la sidebar email si présente), pas contre `viewportW` brut.
+      left = Math.max(VIEWPORT_PADDING, Math.min(left, usableRight - W - VIEWPORT_PADDING))
       return { top, left, width: W, height: tooltipH }
     }
 
     const fitsViewport = (b) =>
       b.top >= STICKY_TOP_OFFSET &&
       b.left >= VIEWPORT_PADDING &&
-      b.left + b.width <= viewportW - VIEWPORT_PADDING &&
+      b.left + b.width <= usableRight - VIEWPORT_PADDING &&
       b.top + b.height <= viewportH - VIEWPORT_PADDING
 
     // Strict non-overlap : les 4 conditions de séparation des rectangles.
@@ -282,15 +301,20 @@ export default function TutorialOverlay({
           from { opacity: 0; transform: translateY(4px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+        /* LOTPLOT 25 fix #B : ring plus discret pour ne plus déborder hors
+           des modals au point que l'utilisateur perçoive un "clone" du bouton.
+           - outline 2px (au lieu de 3px) directement collé au bord (offset 0)
+           - glow box-shadow capé à 4px max (au lieu de 8px)
+           Le total visible reste ≤ 6px hors du bord du bouton. */
         @keyframes walkthrough-button-pulse {
-          0%, 100% { box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.30); }
-          50%      { box-shadow: 0 0 0 8px rgba(234, 88, 12, 0.45); }
+          0%, 100% { box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.25); }
+          50%      { box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.45); }
         }
         .walkthrough-highlight {
           position: relative !important;
           z-index: 40 !important;
-          outline: 3px solid #EA580C !important;
-          outline-offset: 2px !important;
+          outline: 2px solid #EA580C !important;
+          outline-offset: 0 !important;
           border-radius: 8px;
           animation: walkthrough-button-pulse 2s ease-in-out infinite;
           pointer-events: auto !important;
