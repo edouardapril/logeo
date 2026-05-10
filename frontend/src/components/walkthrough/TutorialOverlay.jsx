@@ -13,7 +13,11 @@ import { ArrowRight, X } from 'lucide-react'
 //     → mouvements smooth entre steps. (fix #2 + #4)
 
 const TOOLTIP_WIDTH = 320
-const TOOLTIP_MARGIN = 16
+// LOTPLOT 23D : padding strict 32px entre tooltip et target (avant 16px,
+// trop serré visuellement, le bas du tooltip touchait le haut du bouton).
+const TOOLTIP_MARGIN = 32
+// Padding sécurité contre les bords du viewport
+const VIEWPORT_PADDING = 16
 // Hauteur de la stack sticky (bandeau MODE EXEMPLE + ProgressTracker desktop) :
 // bandeau ~38px (peut wrap sur mobile étroit → ~64px) + tracker ~50px.
 // 116px de safety margin couvre les deux cas + un peu d'espace visuel.
@@ -43,12 +47,23 @@ export default function TutorialOverlay({
     }
   }, [tooltipText])
 
-  // Recompute rect du target sur scroll/resize/timer
+  // LOTPLOT 23D : track le selector qu'on a déjà scrollé pour ne pas re-scroller
+  // en boucle (sinon l'event listener `scroll` recalculait, voyait que le target
+  // n'était plus en center-zone, et re-scrollait).
+  const scrolledForSelectorRef = useRef(null)
+
+  // Recompute rect du target sur scroll/resize/timer.
   useLayoutEffect(() => {
     if (!targetSelector) {
       setRect(null)
+      scrolledForSelectorRef.current = null
       return
     }
+    // Reset le flag de scroll dès que le selector change → on re-centrera
+    if (scrolledForSelectorRef.current !== targetSelector) {
+      scrolledForSelectorRef.current = null
+    }
+
     const compute = () => {
       const el = document.querySelector(targetSelector)
       if (!el) {
@@ -56,15 +71,22 @@ export default function TutorialOverlay({
         return
       }
       const r = el.getBoundingClientRect()
-      const fullyVisible = r.top >= STICKY_TOP_OFFSET && r.bottom <= window.innerHeight
-      if (!fullyVisible) {
-        // scroll into view AVEC offset pour ne pas se cacher derrière la stack sticky
-        const target_y = window.scrollY + r.top - STICKY_TOP_OFFSET - 16
-        window.scrollTo({ top: Math.max(0, target_y), behavior: 'smooth' })
+
+      // LOTPLOT 23D fix #3 : auto-scroll-into-center.
+      // On vise le tiers central du viewport. Si le target n'y est pas et
+      // qu'on n'a pas encore scrollé pour ce selector, on lance un
+      // scrollIntoView({block:'center'}) puis on re-mesure après 350ms.
+      const targetCenterY = r.top + r.height / 2
+      const viewportCenterY = window.innerHeight / 2
+      const inCenterZone = Math.abs(targetCenterY - viewportCenterY) <= window.innerHeight / 6
+
+      if (!inCenterZone && scrolledForSelectorRef.current !== targetSelector) {
+        scrolledForSelectorRef.current = targetSelector
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
         setTimeout(() => {
           const el2 = document.querySelector(targetSelector)
           if (el2) setRect(el2.getBoundingClientRect())
-        }, 400)
+        }, 350)
         return
       }
       setRect(r)
@@ -98,25 +120,28 @@ export default function TutorialOverlay({
   })()
 
   // ── Position de la tooltip ──────────────────────────────────────────────────
+  // LOTPLOT 23D : algorithme robuste à fallback 4 côtés + détection de
+  // débordement. On essaie le côté préféré ; s'il déborde du viewport ou
+  // chevauche le target, on essaie l'opposé, puis perpendiculaires, puis on
+  // tombe en mode floating bottom (notification persistante).
   const tooltipStyle = (() => {
     const tooltipEl = tooltipRef.current
-    const tooltipH = tooltipEl ? tooltipEl.offsetHeight : 140
+    const tooltipH = tooltipEl ? tooltipEl.offsetHeight : 160
     const viewportH = window.innerHeight
     const viewportW = window.innerWidth
+    const W = Math.min(TOOLTIP_WIDTH, viewportW - 2 * VIEWPORT_PADDING)
 
-    // ── Mode floating (forcé OU target dans modal) ─────────────────────────
-    // Le tooltip se pose en bas-centre du viewport, comme une notification
-    // persistante. Garantit qu'il ne chevauche jamais le contenu d'un modal.
-    if (tooltipPosition === 'floating' || isInModal) {
-      return {
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        maxWidth: TOOLTIP_WIDTH,
-        width: 'min(90vw, 320px)',
-      }
+    const floatingStyle = {
+      position: 'fixed',
+      bottom: 24,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      maxWidth: TOOLTIP_WIDTH,
+      width: `min(calc(100vw - ${2 * VIEWPORT_PADDING}px), ${TOOLTIP_WIDTH}px)`,
     }
+
+    // Mode floating forcé
+    if (tooltipPosition === 'floating' || isInModal) return floatingStyle
 
     if (!rect) {
       return {
@@ -125,54 +150,76 @@ export default function TutorialOverlay({
         top: '50%',
         transform: 'translate(-50%, -50%)',
         maxWidth: TOOLTIP_WIDTH,
-        width: 'min(90vw, 320px)',
+        width: `min(calc(100vw - ${2 * VIEWPORT_PADDING}px), ${TOOLTIP_WIDTH}px)`,
       }
     }
 
-    let pos = tooltipPosition
-
-    // Flip auto top↔bottom si pas la place
-    if (pos === 'top' && rect.top - tooltipH - TOOLTIP_MARGIN < STICKY_TOP_OFFSET) {
-      pos = 'bottom'
-    }
-    if (pos === 'bottom' && rect.bottom + TOOLTIP_MARGIN + tooltipH > viewportH - 16) {
-      if (rect.top - tooltipH - TOOLTIP_MARGIN >= STICKY_TOP_OFFSET) pos = 'top'
-    }
-
-    let top, left, transform = ''
-
-    switch (pos) {
-      case 'top':
-        top = rect.top - TOOLTIP_MARGIN - tooltipH
-        left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-        break
-      case 'left':
-        top = rect.top + rect.height / 2 - tooltipH / 2
-        left = rect.left - TOOLTIP_MARGIN - TOOLTIP_WIDTH
-        break
-      case 'right':
-        top = rect.top + rect.height / 2 - tooltipH / 2
-        left = rect.right + TOOLTIP_MARGIN
-        break
-      case 'bottom':
-      default:
-        top = rect.bottom + TOOLTIP_MARGIN
-        left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-        break
+    // ── Helpers locaux ────────────────────────────────────────────────────
+    const computeFor = (pos) => {
+      let top, left
+      switch (pos) {
+        case 'top':
+          top = rect.top - TOOLTIP_MARGIN - tooltipH
+          left = rect.left + rect.width / 2 - W / 2
+          break
+        case 'bottom':
+          top = rect.bottom + TOOLTIP_MARGIN
+          left = rect.left + rect.width / 2 - W / 2
+          break
+        case 'left':
+          top = rect.top + rect.height / 2 - tooltipH / 2
+          left = rect.left - TOOLTIP_MARGIN - W
+          break
+        case 'right':
+        default:
+          top = rect.top + rect.height / 2 - tooltipH / 2
+          left = rect.right + TOOLTIP_MARGIN
+          break
+      }
+      // clamp horizontal mais SANS écraser dans la zone du target — on revérifie
+      // juste après avec fitsAndDoesNotOverlap.
+      left = Math.max(VIEWPORT_PADDING, Math.min(left, viewportW - W - VIEWPORT_PADDING))
+      return { top, left, width: W, height: tooltipH }
     }
 
-    const maxLeft = viewportW - TOOLTIP_WIDTH - 12
-    left = Math.max(12, Math.min(left, maxLeft))
-    top = Math.max(STICKY_TOP_OFFSET, Math.min(top, viewportH - tooltipH - 12))
+    const fitsViewport = (b) =>
+      b.top >= STICKY_TOP_OFFSET &&
+      b.left >= VIEWPORT_PADDING &&
+      b.left + b.width <= viewportW - VIEWPORT_PADDING &&
+      b.top + b.height <= viewportH - VIEWPORT_PADDING
 
-    return {
-      position: 'fixed',
-      top,
-      left,
-      maxWidth: TOOLTIP_WIDTH,
-      width: 'min(90vw, 320px)',
-      transform,
+    // Strict non-overlap : les 4 conditions de séparation des rectangles.
+    const noOverlap = (a, b) =>
+      a.left + a.width <= b.left ||
+      a.left >= b.left + b.width ||
+      a.top + a.height <= b.top ||
+      a.top >= b.top + b.height
+
+    // ── Ordre d'essai : préférée → opposée → perpendiculaires ────────────
+    const opposite = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
+    const order = [
+      tooltipPosition,
+      opposite[tooltipPosition],
+      ...(['top', 'bottom'].includes(tooltipPosition) ? ['right', 'left'] : ['bottom', 'top']),
+    ]
+
+    for (const pos of order) {
+      const candidate = computeFor(pos)
+      if (fitsViewport(candidate) && noOverlap(candidate, rect)) {
+        return {
+          position: 'fixed',
+          top: candidate.top,
+          left: candidate.left,
+          maxWidth: TOOLTIP_WIDTH,
+          width: `min(calc(100vw - ${2 * VIEWPORT_PADDING}px), ${TOOLTIP_WIDTH}px)`,
+        }
+      }
     }
+
+    // Aucun côté ne tient sans déborder ou chevaucher le target → floating.
+    // Le spotlight pulse continue de pointer le target ; le tooltip reste lisible
+    // au bas du viewport sans jamais masquer le contenu.
+    return floatingStyle
   })()
 
   const spotlightStyle = rect
